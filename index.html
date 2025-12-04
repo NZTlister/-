@@ -3,40 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D Hand Particles - Fantastic Shapes</title>
+    <title>3D Magic Particles</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; color: white; font-family: monospace; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         
+        /* 调试日志 */
         #debug-console {
-            position: absolute; top: 0; left: 0; width: 100%; height: 50px;
-            background: rgba(20, 0, 0, 0.8); pointer-events: none;
-            z-index: 999; padding: 10px; box-sizing: border-box;
-            overflow-y: scroll; border-bottom: 1px solid #ff000055;
-            font-size: 12px;
-            /* 成功后自动隐藏 */
-            transition: opacity 1s;
+            position: absolute; top: 0; left: 0; width: 100%; padding: 10px;
+            color: lime; font-size: 12px; pointer-events: none; z-index: 999;
+            text-shadow: 1px 1px 2px black;
         }
 
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        #video-input { position: absolute; bottom: 10px; right: 10px; width: 100px; transform: scaleX(-1); z-index: 5; display: none; border-radius: 8px; border: 1px solid #555; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        /* 摄像头小窗 (放在右下角) */
+        #video-input { 
+            position: absolute; bottom: 10px; right: 10px; width: 120px; 
+            transform: scaleX(-1); z-index: 10; border: 1px solid #333; border-radius: 8px;
+            display: none; 
+        }
         
+        /* 启动按钮 */
         #start-btn {
-            position: absolute; bottom: 30%; left: 50%; transform: translateX(-50%);
-            padding: 12px 35px; font-size: 16px; border-radius: 25px;
-            background: rgba(0, 210, 255, 0.3); color: #00d2ff; border: 1px solid #00d2ff; 
-            cursor: pointer; z-index: 100; display: none;
-            backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+            position: absolute; bottom: 15%; left: 50%; transform: translateX(-50%);
+            padding: 12px 40px; font-size: 16px; border-radius: 30px;
+            background: #00d2ff; color: #000; border: none; font-weight: bold;
+            cursor: pointer; z-index: 100; box-shadow: 0 0 15px #00d2ff;
         }
     </style>
-
-    <script>
-        function log(msg) {
-            const box = document.getElementById('debug-console');
-            if(box) { box.innerHTML = `> ${msg}`; }
-            console.log(msg);
-        }
-        window.onerror = (msg) => log(`❌ ERROR: ${msg}`);
-    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
@@ -54,42 +47,57 @@
     </script>
 </head>
 <body>
-    <div id="debug-console">⏳ 初始化中...</div>
-    <button id="start-btn">开启摄像头体验 (START)</button>
-    <video id="video-input" playsinline></video>
+    <div id="debug-console">等待 JS 加载...</div>
     <div id="canvas-container"></div>
+    <video id="video-input" playsinline></video>
+    <button id="start-btn" style="display:none">📷 开启手势控制</button>
 
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import GUI from 'lil-gui';
 
-        log("📦 模块加载完毕，正在等待 MediaPipe...");
+        const logDiv = document.getElementById('debug-console');
+        function log(msg) { logDiv.innerText = `> ${msg}`; console.log(msg); }
+        window.onerror = (e) => log("❌ " + e);
 
-        let scene, camera, renderer, particles, geometry, material;
-        let positionsOriginal = [], handScaleFactor = 1.0, isRunning = false;
-        const startBtn = document.getElementById('start-btn');
-        const debugBox = document.getElementById('debug-console');
-        const PARTICLE_COUNT = 6000; // 粒子数量
+        // 全局变量
+        let scene, camera, renderer, particles, geometry, material, cube;
+        let positionsOriginal = [], handScaleFactor = 1.0;
+        const PARTICLE_COUNT = 5000;
 
-        // --- 资源检测 ---
+        // --- 1. 立即初始化 3D 场景 (不等待摄像头) ---
+        initThree();
+        animate(); // 立即开始渲染循环
+        log("✅ 3D 引擎已启动 (你应该能看到旋转的粒子)");
+
+        // --- 2. 资源检测 (用于开启摄像头) ---
         const checkTimer = setInterval(() => {
             if (window.Hands && window.Camera) {
                 clearInterval(checkTimer);
-                log("✅ 资源就绪。请点击按钮启动。");
-                startBtn.style.display = 'block';
-                setTimeout(() => debugBox.style.opacity = 0, 3000); // 3秒后隐藏日志
+                document.getElementById('start-btn').style.display = 'block';
+                log("MediaPipe 就绪，点击按钮开启互动");
             }
         }, 500);
 
-        // --- 启动 ---
-        startBtn.addEventListener('click', async () => {
-            startBtn.style.display = 'none';
-            log("🚀 正在启动摄像头...");
+        // --- 3. 按钮事件 ---
+        document.getElementById('start-btn').addEventListener('click', async function() {
+            this.style.display = 'none';
+            log("正在请求摄像头...");
             try {
                 const hands = new window.Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-                hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-                hands.onResults(onHandResults);
+                hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
+                hands.onResults((res) => {
+                    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+                        const lm = res.multiHandLandmarks[0];
+                        const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                        // 缩放映射
+                        const target = 0.5 + Math.min(Math.max((d-0.02)/0.2,0),1) * 2.0;
+                        handScaleFactor += (target - handScaleFactor) * 0.1;
+                    } else {
+                        handScaleFactor += (1.0 - handScaleFactor) * 0.05;
+                    }
+                });
 
                 const video = document.getElementById('video-input');
                 const cameraUtils = new window.Camera(video, {
@@ -97,168 +105,179 @@
                     width: 640, height: 480, facingMode: "user"
                 });
                 await cameraUtils.start();
-                
                 video.style.display = 'block';
-                initThree();
-                animate();
-                isRunning = true;
-                log(""); debugBox.style.display='none'; // 彻底隐藏
+                log("✅ 摄像头已连接，捏合手指试试！");
+                
+                // 摄像头成功后，隐藏红色调试方块
+                if(cube) cube.visible = false;
 
-            } catch (e) {
-                log("❌ 启动失败: " + e.message); alert(e.message); startBtn.style.display = 'block';
+            } catch(e) {
+                alert("摄像头启动失败: " + e.message);
+                log("❌ " + e.message);
+                this.style.display = 'block';
             }
         });
 
-        // --- Three.js ---
+        // --- Three.js 核心逻辑 ---
         function initThree() {
+            const container = document.getElementById('canvas-container');
+            
             scene = new THREE.Scene();
-            // 添加一点环境雾气，增加深邃感
-            scene.fog = new THREE.FogExp2(0x000000, 0.015);
+            scene.fog = new THREE.FogExp2(0x000000, 0.02);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-            camera.position.z = 25; // 相机拉远一点看大场景
+            camera.position.z = 20;
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            document.getElementById('canvas-container').appendChild(renderer.domElement);
-            
+            container.appendChild(renderer.domElement);
+
+            // 控制器
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.autoRotate = true; // 开启自动旋转
-            controls.autoRotateSpeed = 0.5;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 1.0;
 
-            // 初始化粒子系统
+            // [调试] 添加一个红色的立方体在中心
+            // 如果你能看到这个方块，说明 WebGL 是正常的
+            const boxGeo = new THREE.BoxGeometry(2, 2, 2);
+            const boxMat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
+            cube = new THREE.Mesh(boxGeo, boxMat);
+            scene.add(cube);
+
+            // 粒子系统
             geometry = new THREE.BufferGeometry();
             const pos = new Float32Array(PARTICLE_COUNT * 3);
             geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 
-            // 生成发光纹理
-            const cvs = document.createElement('canvas'); cvs.width=32; cvs.height=32;
+            // 创建简单的发光纹理
+            const cvs = document.createElement('canvas'); 
+            cvs.width = 64; cvs.height = 64; // 增大纹理
             const ctx = cvs.getContext('2d');
-            const grd = ctx.createRadialGradient(16,16,0,16,16,16);
-            grd.addColorStop(0,'rgba(255,255,255,1)'); grd.addColorStop(0.4,'rgba(200,255,255,0.3)'); grd.addColorStop(1,'rgba(0,0,0,0)');
-            ctx.fillStyle = grd; ctx.fillRect(0,0,32,32);
+            ctx.beginPath();
+            ctx.arc(32, 32, 30, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
             const tex = new THREE.Texture(cvs); tex.needsUpdate = true;
 
-            material = new THREE.PointsMaterial({ 
-                size: 0.2, map: tex, color: 0x00d2ff, 
-                transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false 
+            material = new THREE.PointsMaterial({
+                size: 0.4, // 增大粒子尺寸
+                map: tex,
+                color: 0x00d2ff,
+                transparent: true, 
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
             });
+
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
             // 默认形状
             updateShape('Galaxy');
 
-            // GUI 控制面板
+            // GUI
             const gui = new GUI();
-            gui.domElement.style.marginTop = "10px";
-            const config = { shape: 'Galaxy', color: '#00d2ff' };
-            gui.add(config, 'shape', ['Galaxy', 'Heart', 'Nebula', 'Spiral', 'Sphere']).name('切换形状').onChange(v => updateShape(v));
-            gui.addColor(config, 'color').name('粒子颜色').onChange(v => material.color.set(v));
+            gui.domElement.style.top = '10px';
+            const params = { shape: 'Galaxy', color: '#00d2ff' };
+            
+            gui.add(params, 'shape', ['Galaxy', 'Heart', 'Nebula', 'Spiral', 'Sphere', 'DNA']).onChange(v => updateShape(v));
+            gui.addColor(params, 'color').onChange(v => material.color.set(v));
 
-            window.addEventListener('resize', onResize);
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth/window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
         }
 
-        // --- 核心：形状生成公式 ---
+        // --- 形状公式 ---
         function updateShape(type) {
             const count = PARTICLE_COUNT;
             const arr = new Float32Array(count * 3);
             for(let i=0; i<count; i++) {
-                let x,y,z, r, a, phi, theta;
                 const i3 = i*3;
-                const random = Math.random(); // 预计算随机数
-
-                switch(type) {
-                    case 'Galaxy': // 银河系
-                        // 增加旋臂数量和随机性
-                        const arms = 5;
-                        const spin = i * 0.001;
-                        const armIndex = i % arms;
-                        r = random * 15; // 半径
-                        a = spin + (Math.PI * 2 / arms) * armIndex; // 角度
-                        x = Math.cos(a) * r;
-                        y = (Math.random() - 0.5) * (r * 0.1 + 0.5); // 中心扁平
-                        z = Math.sin(a) * r;
-                        // 增加一点随机散射
-                        x += (Math.random()-0.5) * 0.5; z += (Math.random()-0.5) * 0.5;
-                        break;
-
-                    case 'Heart': // 3D爱心
-                        phi = Math.acos( -1 + ( 2 * i ) / count );
-                        theta = Math.sqrt( count * Math.PI ) * phi;
-                        // 爱心参数方程
-                        x = 16 * Math.pow(Math.sin(theta), 3);
-                        y = 13 * Math.cos(theta) - 5 * Math.cos(2 * theta) - 2 * Math.cos(3 * theta) - Math.cos(4 * theta);
-                        z = 6 * Math.cos(phi); // 稍微压扁一点z轴
-                        // 缩放
-                        x *= 0.4; y *= 0.4; z *= 0.4;
-                        break;
-                    
-                    case 'Nebula': // 星云 (复杂波形)
-                        r = 5 + random * 10;
-                        theta = random * Math.PI * 2;
-                        phi = random * Math.PI;
-                        // 使用多个不同频率的正弦波叠加
-                        const wave1 = Math.sin(i * 0.01) * 2;
-                        const wave2 = Math.cos(i * 0.025) * 3;
-                        x = (r + wave1) * Math.sin(phi) * Math.cos(theta);
-                        y = (r + wave2) * Math.sin(phi) * Math.sin(theta) * 0.6; // 压扁
-                        z = r * Math.cos(phi) * 0.8;
-                        break;
-
-                    case 'Spiral': // 巨大的螺旋结构
-                        r = i * 0.005; // 半径随索引增加
-                        a = i * 0.05;  // 角度随索引增加
-                        x = r * Math.cos(a);
-                        y = (random - 0.5) * 2; // y轴随机分布
-                        z = r * Math.sin(a);
-                        break;
-
-                    default: // Sphere (球体 - 默认)
-                        r = 10;
-                        phi = Math.acos( -1 + ( 2 * i ) / count );
-                        theta = Math.sqrt( count * Math.PI ) * phi;
-                        x = r * Math.sin(phi) * Math.cos(theta);
-                        y = r * Math.sin(phi) * Math.sin(theta);
-                        z = r * Math.cos(phi);
-                        break;
+                let x=0, y=0, z=0;
+                
+                if (type === 'Galaxy') {
+                    const arms = 3; 
+                    const spin = i * 0.002;
+                    const branch = i % arms;
+                    const r = Math.random() * 15;
+                    const a = spin + (Math.PI*2/arms)*branch;
+                    x = Math.cos(a)*r + (Math.random()-0.5);
+                    y = (Math.random()-0.5)*2;
+                    z = Math.sin(a)*r + (Math.random()-0.5);
+                } 
+                else if (type === 'Heart') {
+                    const t = (i/count)*Math.PI*2;
+                    const phi = Math.acos(-1+(2*i)/count);
+                    const theta = Math.sqrt(count*Math.PI)*phi;
+                    x = 16*Math.pow(Math.sin(theta),3) * 0.4;
+                    y = (13*Math.cos(theta)-5*Math.cos(2*theta)-2*Math.cos(3*theta)-Math.cos(4*theta)) * 0.4;
+                    z = 8*Math.cos(phi) * 0.4;
                 }
-                // 统一写入数组
+                else if (type === 'Nebula') {
+                    const r = 8 * Math.cbrt(Math.random()); 
+                    const theta = Math.random() * 2 * Math.PI;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    x = r * Math.sin(phi) * Math.cos(theta) * (1 + Math.sin(theta*5)*0.2);
+                    y = r * Math.sin(phi) * Math.sin(theta) * (1 + Math.cos(phi*5)*0.2);
+                    z = r * Math.cos(phi);
+                }
+                else if (type === 'Spiral') {
+                    const r = i * 0.003; 
+                    const a = i * 0.1;
+                    x = r * Math.cos(a);
+                    y = (Math.random()-0.5)*5;
+                    z = r * Math.sin(a);
+                }
+                else if (type === 'DNA') {
+                    const t = i * 0.1;
+                    const r = 3;
+                    x = Math.cos(t) * r;
+                    y = (i/count) * 20 - 10;
+                    z = Math.sin(t) * r;
+                    // 双螺旋
+                    if (i % 2 === 0) { x = -x; z = -z; }
+                }
+                else { // Sphere
+                    const r = 8;
+                    const phi = Math.acos( -1 + ( 2 * i ) / count );
+                    const theta = Math.sqrt( count * Math.PI ) * phi;
+                    x = r * Math.sin(phi) * Math.cos(theta);
+                    y = r * Math.sin(phi) * Math.sin(theta);
+                    z = r * Math.cos(phi);
+                }
+
                 arr[i3] = x; arr[i3+1] = y; arr[i3+2] = z;
             }
-            positionsOriginal = arr; // 更新目标位置
+            positionsOriginal = arr;
         }
 
         function animate() {
-            if(!isRunning) return;
             requestAnimationFrame(animate);
+            
             const pos = particles.geometry.attributes.position.array;
-            // 缓动动画：当前位置 -> 目标位置 * 手势缩放
+            
+            // 粒子插值动画
             for(let i=0; i<pos.length; i++) {
-                pos[i] += (positionsOriginal[i] * handScaleFactor - pos[i]) * 0.08;
+                // 如果 positionsOriginal 还没准备好（虽然初始化就准备好了），就保持原样
+                if (positionsOriginal.length > 0) {
+                    pos[i] += (positionsOriginal[i] * handScaleFactor - pos[i]) * 0.08;
+                }
             }
+            
             particles.geometry.attributes.position.needsUpdate = true;
-            renderer.render(scene, camera);
-        }
-
-        function onHandResults(res) {
-            if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-                const lm = res.multiHandLandmarks[0];
-                const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-                // 映射距离到缩放系数 (0.3 ~ 2.5)
-                const target = 0.3 + Math.min(Math.max((d-0.02)/0.2,0),1) * 2.2;
-                handScaleFactor += (target - handScaleFactor) * 0.1;
-            } else {
-                handScaleFactor += (1.0 - handScaleFactor) * 0.05;
+            
+            // 让红色方块也转起来
+            if(cube) {
+                cube.rotation.x += 0.01;
+                cube.rotation.y += 0.01;
             }
-        }
-        
-        function onResize() {
-            camera.aspect = window.innerWidth/window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            renderer.render(scene, camera);
         }
     </script>
 </body>
