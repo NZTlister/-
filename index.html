@@ -3,44 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 手势粒子 (GitHub Pages 版)</title>
+    <title>3D 手势粒子 (高速非阻塞版)</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         #canvas-container { position: absolute; width: 100%; height: 100%; z-index: 1; }
         #video-input { position: absolute; bottom: 10px; right: 10px; width: 120px; z-index: 10; transform: scaleX(-1); display: none; border: 1px solid #fff; }
         
-        /* 加载层 */
         #overlay { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index:100; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #00d2ff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;}
-        #status { color: #ccc; font-size: 14px; text-align: center; max-width: 80%; }
+        #status { color: #ccc; font-size: 14px; text-align: center; max-width: 80%; line-height: 1.5; }
         
-        /* 启动按钮 */
-        #start-btn { margin-top: 20px; padding: 10px 30px; border: 1px solid #00d2ff; color: #00d2ff; background: rgba(0,210,255,0.1); border-radius: 20px; display: none; cursor: pointer; }
+        button { margin-top: 20px; padding: 10px 25px; border-radius: 20px; cursor: pointer; border: 1px solid #00d2ff; background: rgba(0,210,255,0.1); color: #00d2ff; }
+        #start-btn { display: none; font-weight: bold; transform: scale(1.1); }
+        #force-btn { display: none; margin-top: 15px; font-size: 12px; color: #aaa; border-color: #555; background: none; }
         
-        /* 屏幕日志 (用于手机调试) */
-        #console-log { position: absolute; bottom: 0; left: 0; width: 100%; height: 150px; background: rgba(0,0,0,0.5); color: #0f0; font-size: 10px; overflow-y: scroll; z-index: 200; pointer-events: none; display: none;}
+        #console-log { position: absolute; bottom: 0; left: 0; width: 100%; height: 120px; background: rgba(0,0,0,0.6); color: #0f0; font-size: 10px; overflow-y: scroll; z-index: 200; pointer-events: none; display: none; padding: 5px;}
         
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 
-    <script>
-        window.onerror = function(msg, source, lineno) {
-            const log = document.getElementById('console-log');
-            if(log) {
-                log.style.display = 'block';
-                log.innerHTML += `<div style="color:red">ERROR: ${msg}</div>`;
-            }
-        };
-        function logMsg(msg) {
-            const log = document.getElementById('console-log');
-            if(log) log.innerHTML += `<div>> ${msg}</div>`;
-        }
-    </script>
-
-    <script src="https://unpkg.zhimg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.zhimg.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.zhimg.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.zhimg.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous" defer></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous" defer></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous" defer></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/hands/hands.js" crossorigin="anonymous" defer></script>
 
     <script type="importmap">
         {
@@ -59,9 +44,9 @@
     
     <div id="overlay">
         <div class="spinner" id="spinner"></div>
-        <div id="status">正在加载资源...<br>如果卡住，请检查网络</div>
-        <button id="start-btn">启动体验 (Start)</button>
-        <button id="force-btn" style="display:none; margin-top:10px; color:#aaa; background:none; border:none; border-bottom:1px solid #555;">等待太久? 强制进入</button>
+        <div id="status">资源加载中...<br>(如果超过 8 秒无反应，将出现强制按钮)</div>
+        <button id="start-btn">启动 (START)</button>
+        <button id="force-btn">等待太久? 跳过检测强制运行</button>
     </div>
 
     <script type="module">
@@ -69,78 +54,90 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import GUI from 'lil-gui';
 
-        logMsg("Three.js 模块已加载");
+        // 简易日志工具
+        const logBox = document.getElementById('console-log');
+        function log(msg) {
+            logBox.style.display = 'block';
+            logBox.innerHTML += `<div>> ${msg}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+        window.onerror = (msg) => log(`ERR: ${msg}`);
+
+        log("页面逻辑已启动 (HTML Parsing Done)");
 
         const els = {
-            overlay: document.getElementById('overlay'),
             status: document.getElementById('status'),
-            startBtn: document.getElementById('start-btn'),
+            start: document.getElementById('start-btn'),
+            force: document.getElementById('force-btn'),
             spinner: document.getElementById('spinner'),
             video: document.getElementById('video-input'),
-            forceBtn: document.getElementById('force-btn')
+            overlay: document.getElementById('overlay')
         };
 
         let scene, camera, renderer, particles, geometry, material;
-        let positionsOriginal = [], handScaleFactor = 1.0;
-        let isRunning = false;
-        
-        // --- 资源检查 ---
+        let positionsOriginal = [], handScaleFactor = 1.0, isRunning = false;
         let loaded = false;
+
+        // --- 1. 资源检测循环 ---
         const checkTimer = setInterval(() => {
-            if (window.Hands && window.Camera && THREE) {
+            // 检查 MediaPipe 全局变量是否就绪
+            if (window.Hands && window.Camera) {
                 clearInterval(checkTimer);
                 loaded = true;
-                els.spinner.style.display = 'none';
-                els.status.innerText = "资源加载完毕 ✅";
-                els.startBtn.style.display = 'block';
-                els.forceBtn.style.display = 'none';
-                logMsg("所有库检测通过");
+                onLoaded();
             }
         }, 500);
 
-        // --- 超时处理 ---
+        function onLoaded() {
+            log("MediaPipe & Three.js 就绪");
+            els.spinner.style.display = 'none';
+            els.status.innerText = "资源加载完毕 ✅";
+            els.start.style.display = 'block';
+            els.force.style.display = 'none';
+        }
+
+        // --- 2. 超时急救逻辑 ---
         setTimeout(() => {
             if (!loaded) {
-                els.status.innerText = "加载似乎卡住了 (可能是网络原因)";
-                els.forceBtn.style.display = 'block';
-                document.getElementById('console-log').style.display = 'block'; // 显示日志供排查
-                logMsg("超时：请检查上方是否有红色报错");
+                log("超时警告：CDN连接缓慢");
+                els.status.innerText = "网络似乎有点慢...";
+                els.force.style.display = 'block'; // 显示强制按钮
             }
-        }, 8000); // 8秒后显示强制按钮
+        }, 8000);
 
-        els.forceBtn.addEventListener('click', () => {
-            els.spinner.style.display = 'none';
-            els.startBtn.style.display = 'block';
-            els.forceBtn.style.display = 'none';
+        // 强制运行按钮（即使库没加载完，也尝试运行，或者让用户知道出错了）
+        els.force.addEventListener('click', () => {
+            if(window.Hands) {
+                onLoaded();
+            } else {
+                alert("核心 AI 库尚未下载完成，强制运行可能会报错。\n请尝试切换 WiFi/4G 网络再刷新。");
+                // 即使报错也尝试显示按钮，万一只是检测逻辑卡了呢
+                els.force.style.display = 'none';
+                els.start.style.display = 'block';
+            }
         });
 
-        // --- 启动逻辑 ---
-        els.startBtn.addEventListener('click', async () => {
-            els.startBtn.style.display = 'none';
+        // --- 3. 启动主逻辑 ---
+        els.start.addEventListener('click', async () => {
+            els.start.style.display = 'none';
             els.spinner.style.display = 'block';
             els.status.innerText = "正在请求摄像头...";
 
             try {
-                // MediaPipe 配置
                 const hands = new window.Hands({locateFile: (file) => {
-                    // 强制使用知乎镜像加载模型文件
                     return `https://unpkg.zhimg.com/@mediapipe/hands/${file}`;
                 }});
                 
                 hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
                 hands.onResults(onHandResults);
 
-                // 摄像头
                 const cameraUtils = new window.Camera(els.video, {
                     onFrame: async () => { await hands.send({image: els.video}); },
                     width: 640, height: 480, facingMode: "user"
                 });
                 
-                logMsg("正在启动摄像头...");
                 await cameraUtils.start();
-                logMsg("摄像头启动成功");
-
-                // 3D 场景
+                
                 initThree();
                 animate();
 
@@ -150,18 +147,15 @@
                 isRunning = true;
 
             } catch (e) {
-                console.error(e);
-                logMsg("Error: " + e.message);
-                els.status.innerText = "启动失败: " + e.message;
-                els.status.style.color = "red";
-                alert("无法启动: " + e.message);
+                log("启动错误: " + e.message);
+                alert("启动失败: " + e.message);
+                els.start.style.display = 'block';
             }
         });
 
-        // --- Three.js 逻辑 ---
+        // --- 4. Three.js 场景 ---
         function initThree() {
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x000000, 0.02);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
             camera.position.z = 20;
 
@@ -172,30 +166,24 @@
             
             new OrbitControls(camera, renderer.domElement).enableDamping = true;
 
-            // 粒子
             updateShape('Galaxy');
             
-            // 生成纹理
-            const cvs = document.createElement('canvas'); cvs.width=32; cvs.height=32;
-            const ctx = cvs.getContext('2d');
-            const grd = ctx.createRadialGradient(16,16,0,16,16,16);
-            grd.addColorStop(0,'rgba(255,255,255,1)'); grd.addColorStop(1,'rgba(0,0,0,0)');
-            ctx.fillStyle = grd; ctx.fillRect(0,0,32,32);
-            const tex = new THREE.Texture(cvs); tex.needsUpdate = true;
+            // 纯代码纹理
+            const c = document.createElement('canvas'); c.width=32; c.height=32;
+            const ctx = c.getContext('2d');
+            const g = ctx.createRadialGradient(16,16,0,16,16,16);
+            g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.fillStyle = g; ctx.fillRect(0,0,32,32);
+            const tex = new THREE.Texture(c); tex.needsUpdate = true;
 
-            material = new THREE.PointsMaterial({
-                color: '#00d2ff', size: 0.1, map: tex,
-                transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
-            });
+            material = new THREE.PointsMaterial({ color: '#00d2ff', size: 0.15, map: tex, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
-            // GUI
             const gui = new GUI({ title: 'Control' });
             gui.domElement.style.marginTop = '20px';
-            gui.addColor({c:'#00d2ff'}, 'c').onChange(v => material.color.set(v)).name('Color');
-            gui.add({s:'Galaxy'}, 's', ['Galaxy', 'Heart', 'Sphere']).onChange(v => updateShape(v)).name('Shape');
-
+            gui.add({s:'Galaxy'}, 's', ['Galaxy', 'Heart', 'Sphere']).onChange(v => updateShape(v));
+            
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth/window.innerHeight;
                 camera.updateProjectionMatrix();
@@ -204,7 +192,7 @@
         }
 
         function updateShape(type) {
-            const count = 8000;
+            const count = 6000; // 降低一点粒子数，提高手机加载速度
             const pos = new Float32Array(count * 3);
             for(let i=0; i<count; i++) {
                 let x,y,z;
@@ -220,13 +208,7 @@
                 pos[i*3]=x+(Math.random()-0.5); pos[i*3+1]=y+(Math.random()-0.5); pos[i*3+2]=z+(Math.random()-0.5);
             }
             positionsOriginal = pos;
-            if(!geometry) {
-                geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            } else {
-                // 如果已经初始化，平滑过渡的逻辑稍微复杂，这里简化处理直接重置
-                // 实际动画在 animate 里
-            }
+            if(!geometry) { geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3)); }
         }
 
         function animate() {
@@ -234,7 +216,7 @@
             requestAnimationFrame(animate);
             const pos = particles.geometry.attributes.position.array;
             for(let i=0; i<positionsOriginal.length; i++) {
-                pos[i] += (positionsOriginal[i]*handScaleFactor - pos[i]) * 0.08;
+                pos[i] += (positionsOriginal[i]*handScaleFactor - pos[i]) * 0.1;
             }
             particles.geometry.attributes.position.needsUpdate = true;
             particles.rotation.y += 0.002;
@@ -254,4 +236,3 @@
     </script>
 </body>
 </html>
-
