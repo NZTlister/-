@@ -3,52 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stable Galaxy Engine V4</title>
+    <title>Romantic Particle System Pro (Fixed)</title>
     <style>
         :root {
-            --glass-bg: rgba(20, 20, 35, 0.6);
-            --border: rgba(255, 255, 255, 0.1);
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.25);
+            --primary-color: #ff69b4;
         }
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Roboto, sans-serif; }
         
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        /* 3D 容器 */
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%); }
 
-        /* 状态监控面板 */
-        #debug-panel {
-            position: absolute; top: 10px; left: 10px; z-index: 20;
-            color: lime; font-family: monospace; font-size: 12px;
-            background: rgba(0,0,0,0.8); padding: 5px 10px; pointer-events: none;
+        /* UI 通用毛玻璃风格 */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
         }
 
-        /* 摄像头小窗 */
-        #camera-wrapper {
-            position: absolute; top: 20px; right: 20px; width: 160px; height: 120px;
-            z-index: 10; border-radius: 8px; overflow: hidden;
-            border: 1px solid var(--border); background: #000;
-            transition: opacity 0.3s;
+        /* 摄像头窗口 - 强制显示以便调试 */
+        #camera-container {
+            position: absolute;
+            top: 20px;
+            right: 80px; 
+            width: 160px;
+            height: 120px;
+            z-index: 10;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #000;
+            border: 2px solid rgba(255,255,255,0.2);
         }
-        #video-input { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        
+        #video-input { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scaleX(-1); /* 镜像 */
+            display: block; /* 确保显示 */
+        }
 
-        /* 控制栏 */
+        /* 底部控制面板 */
         #ui-panel {
-            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-            z-index: 10; display: flex; gap: 10px;
-            background: var(--glass-bg); padding: 10px 20px; border-radius: 30px;
-            backdrop-filter: blur(10px); border: 1px solid var(--border);
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            padding: 12px 20px;
+            border-radius: 40px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
         }
-        .btn {
-            background: rgba(255,255,255,0.1); border: none; color: white;
-            padding: 8px 16px; border-radius: 20px; cursor: pointer; transition: 0.2s;
-        }
-        .btn:hover, .btn.active { background: #00f2ff; color: #000; }
         
-        /* 错误提示 */
-        #error-msg {
-            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(255,0,0,0.8); color: white; padding: 20px; z-index: 100; text-align: center;
+        .btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--glass-border);
+            color: rgba(255,255,255,0.8);
+            padding: 10px 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 15px;
+            display: flex; align-items: center; gap: 6px;
+            outline: none;
+        }
+
+        .btn:hover { background: rgba(255,255,255,0.2); color: white; transform: translateY(-2px); }
+        .btn.active { background: var(--primary-color); border-color: var(--primary-color); color: white; box-shadow: 0 0 15px var(--primary-color); }
+        
+        .color-wrapper {
+            width: 36px; height: 36px; border-radius: 50%; overflow: hidden; border: 2px solid rgba(255,255,255,0.5); cursor: pointer; transition: 0.3s;
+        }
+        input[type="color"] { border: none; width: 200%; height: 200%; cursor: pointer; background: none; padding: 0; transform: translate(-25%, -25%); }
+        
+        #fs-btn { 
+            position: absolute; top: 20px; right: 20px; z-index: 11; 
+            width: 44px; height: 44px; border-radius: 50%; font-size: 22px; 
+            padding: 0; display: flex; justify-content: center; align-items: center;
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;
+        }
+
+        /* 状态提示 */
+        #status-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; z-index: 20; font-size: 16px;
+            text-align: center; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
+            pointer-events: none;
         }
     </style>
-    
+
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
@@ -56,20 +103,26 @@
 </head>
 <body>
 
-    <div id="debug-panel">FPS: Calculating... | AI: Waiting</div>
     <div id="canvas-container"></div>
     
-    <div id="camera-wrapper">
+    <div id="camera-container">
         <video id="video-input" playsinline></video>
     </div>
+    
+    <div id="status-msg">正在连接摄像头并下载AI模型...<br>请稍候，这可能需要几秒钟</div>
 
-    <div id="ui-panel">
-        <button class="btn active" onclick="setShape('galaxy')">星系</button>
-        <button class="btn" onclick="setShape('heart')">爱心</button>
-        <button class="btn" onclick="setShape('vortex')">虫洞</button>
+    <button id="fs-btn">⛶</button>
+
+    <div id="ui-panel" class="glass-panel">
+        <button class="btn active" onclick="setShape('heart')">❤ 爱心</button>
+        <button class="btn" onclick="setShape('galaxy')">🌌 星系</button>
+        <button class="btn" onclick="setShape('saturn')">🪐 土星</button>
+        <button class="btn" onclick="setShape('flower')">🌸 花朵</button>
+        <div style="width:1px; height:24px; background:rgba(255,255,255,0.2); margin: 0 5px;"></div>
+        <div class="color-wrapper">
+             <input type="color" id="color-picker" value="#ff69b4">
+        </div>
     </div>
-
-    <div id="error-msg"></div>
 
     <script type="importmap">
         {
@@ -84,274 +137,249 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        // 性能监控变量
-        let lastTime = performance.now();
-        let frames = 0;
-        const debugPanel = document.getElementById('debug-panel');
-
-        // --- 1. Three.js 初始化 ---
+        // --- 初始化 Three.js 场景 ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.002);
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.z = 45;
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 80;
-
-        const renderer = new THREE.WebGLRenderer({ 
-            antialias: false, // 关闭抗锯齿以提高性能
-            powerPreference: "high-performance" 
-        });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 限制像素比
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.5;
+        controls.autoRotateSpeed = 0.8;
 
-        // --- 2. 优化后的粒子系统 ---
-        // 关键调整：减少到 25,000 个粒子，保证流畅度
-        const PARTICLE_COUNT = 25000; 
-        
+        // --- 粒子系统设置 ---
+        const PARTICLE_COUNT = 40000;
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(PARTICLE_COUNT * 3);
         const targets = new Float32Array(PARTICLE_COUNT * 3);
         const randoms = new Float32Array(PARTICLE_COUNT * 3);
         const colors = new Float32Array(PARTICLE_COUNT * 3);
-
-        const color1 = new THREE.Color(0x00f2ff);
-        const color2 = new THREE.Color(0xff0055);
+        const baseColor = new THREE.Color('#ff69b4');
 
         for(let i=0; i<PARTICLE_COUNT; i++) {
-            positions[i*3] = (Math.random()-0.5)*200;
-            positions[i*3+1] = (Math.random()-0.5)*200;
-            positions[i*3+2] = (Math.random()-0.5)*200;
-            
-            randoms[i*3] = Math.random();
-            randoms[i*3+1] = Math.random();
-            randoms[i*3+2] = Math.random();
+            const i3 = i * 3;
+            positions[i3] = (Math.random() - 0.5) * 150;
+            positions[i3+1] = (Math.random() - 0.5) * 150;
+            positions[i3+2] = (Math.random() - 0.5) * 150;
+            randoms[i3] = Math.random(); 
+            randoms[i3+1] = Math.random();
+            randoms[i3+2] = Math.random();
+            const c = baseColor.clone().offsetHSL(Math.random()*0.1-0.05, 0, 0);
+            colors[i3] = c.r; colors[i3+1] = c.g; colors[i3+2] = c.b;
         }
-
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('target', new THREE.BufferAttribute(targets, 3));
         geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
 
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uTime: { value: 0 },
+                uGlobalColor: { value: new THREE.Color('#ff69b4') },
                 uMorph: { value: 0 },
-                uScale: { value: 1.0 },
-                uRotZ: { value: 0.0 }
+                uHandScale: { value: 1.0 },
+                uHandDisplace: { value: 0.0 },
+                uFlipRot: { value: 0.0 }
             },
             vertexShader: `
                 uniform float uTime;
                 uniform float uMorph;
-                uniform float uScale;
-                uniform float uRotZ;
-                
+                uniform float uHandScale;
+                uniform float uHandDisplace;
+                uniform float uFlipRot;
                 attribute vec3 target;
                 attribute vec3 aRandom;
-                attribute vec3 color;
+                attribute vec3 aColor;
                 varying vec3 vColor;
-
-                mat2 rotate(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
-
+                varying float vAlpha;
+                mat2 rotate2d(float _angle){ return mat2(cos(_angle),-sin(_angle),sin(_angle),cos(_angle)); }
                 void main() {
-                    vColor = color;
+                    vColor = aColor;
                     vec3 pos = mix(position, target, uMorph);
-                    
-                    // 简化的噪声运动，减少GPU计算
-                    float t = uTime * 0.5;
-                    pos.x += sin(t + aRandom.y * 10.0) * 0.5;
-                    pos.y += cos(t + aRandom.z * 10.0) * 0.5;
-                    
-                    pos *= uScale;
-                    pos.xy = rotate(uRotZ) * pos.xy;
-                    
+                    float timeScale = uTime * 1.5;
+                    pos.x += sin(timeScale + aRandom.y * 6.28) * 0.3 * aRandom.x;
+                    pos.y += cos(timeScale + aRandom.z * 6.28) * 0.3 * aRandom.y;
+                    pos.z += sin(timeScale + aRandom.x * 6.28) * 0.3 * aRandom.z;
+                    pos *= uHandScale;
+                    float flipS = sin(uFlipRot);
+                    float flipC = cos(uFlipRot);
+                    mat2 flipMat = mat2(flipC, -flipS, flipS, flipC);
+                    pos.xz = flipMat * pos.xz;
+                    vec3 explosionDir = normalize(pos + vec3(0.001)); 
+                    pos += explosionDir * uHandDisplace * 25.0;
+                    pos.xz = rotate2d(uTime * 0.05 * (aRandom.x - 0.5)) * pos.xz;
                     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                    float baseSize = 3.5 * uHandScale + uHandDisplace * 2.0; 
+                    gl_PointSize = baseSize * (35.0 / -mvPosition.z);
                     gl_Position = projectionMatrix * mvPosition;
-                    gl_PointSize = (3.0 * uScale + 1.0) * (60.0 / -mvPosition.z);
+                    vAlpha = smoothstep(100.0, 0.0, length(pos)) * 0.9 + 0.1;
                 }
             `,
             fragmentShader: `
+                uniform vec3 uGlobalColor;
                 varying vec3 vColor;
+                varying float vAlpha;
                 void main() {
-                    vec2 uv = gl_PointCoord.xy - 0.5;
-                    float d = length(uv);
-                    if(d > 0.5) discard;
-                    float glow = 1.0 - d * 2.0;
-                    glow = pow(glow, 2.0);
-                    gl_FragColor = vec4(vColor, glow);
+                    vec2 coord = gl_PointCoord - vec2(0.5);
+                    float dist = length(coord);
+                    float glow = 1.0 - smoothstep(0.0, 0.5, dist);
+                    glow = pow(glow, 2.0); 
+                    if (dist > 0.5) discard;
+                    vec3 finalColor = mix(vColor, uGlobalColor, 0.7) + vec3(glow * 0.5);
+                    gl_FragColor = vec4(finalColor, vAlpha * glow);
                 }
             `,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
         });
-
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 3. 形状生成 ---
+        // --- 形状逻辑 ---
         const shapes = {
-            galaxy: (i) => {
-                const angle = i * 0.01;
-                const r = 10 + i * 0.002;
-                const x = Math.cos(angle) * r;
-                const z = Math.sin(angle) * r;
-                const y = (Math.random()-0.5) * 10;
-                // 颜色混插
-                const c = new THREE.Color().lerpColors(color1, color2, i/PARTICLE_COUNT);
-                colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
-                return new THREE.Vector3(x, y, z);
-            },
             heart: (i) => {
-                const t = Math.random() * Math.PI * 2;
-                const p = Math.random() * Math.PI;
-                let x = 12 * Math.pow(Math.sin(p), 3) * Math.cos(t);
-                let y = 12 * Math.cos(p) - 5*Math.cos(2*p) - 2*Math.cos(3*p) - Math.cos(4*p);
-                let z = 12 * Math.pow(Math.sin(p), 3) * Math.sin(t) * 0.5;
-                const c = new THREE.Color(0xff0055);
-                colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
-                return new THREE.Vector3(x,y,z);
+                const theta = Math.random() * Math.PI, phi = Math.random() * Math.PI * 2;
+                let x = 16 * Math.pow(Math.sin(theta), 3) * Math.cos(phi);
+                let y = 13 * Math.cos(theta) - 5 * Math.cos(2*theta) - 2 * Math.cos(3*theta) - Math.cos(4*theta);
+                let z = 16 * Math.pow(Math.sin(theta), 3) * Math.sin(phi) * 0.6;
+                return new THREE.Vector3(x, y, z).multiplyScalar(0.9).addScaledVector(new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5), 1.5);
             },
-            vortex: (i) => {
-                const r = (i / PARTICLE_COUNT) * 50;
-                const theta = i * 0.1;
-                const x = r * Math.cos(theta);
-                const z = r * Math.sin(theta);
-                const y = (Math.random()-0.5) * r;
-                const c = new THREE.Color(0x00ff88);
-                colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
-                return new THREE.Vector3(x,y,z);
+            galaxy: (i, total) => {
+                const spin = i/total * 5 * Math.PI * 2;
+                const r = Math.pow(Math.random(), 1.5) * 35;
+                return new THREE.Vector3(Math.cos(spin)*r + (Math.random()-0.5)*3, (Math.random()-0.5)*(r*0.1+2), Math.sin(spin)*r + (Math.random()-0.5)*3);
+            },
+            saturn: (i, total) => {
+                if (i < total * 0.65) {
+                    const r = 9, theta = Math.random()*Math.PI*2, phi = Math.acos((Math.random()*2)-1);
+                    return new THREE.Vector3(r*Math.sin(phi)*Math.cos(theta), r*Math.sin(phi)*Math.sin(theta), r*Math.cos(phi));
+                } else {
+                    const a = Math.random()*Math.PI*2, r = 13 + Math.random()*9;
+                    return new THREE.Vector3(Math.cos(a)*r, (Math.random()-0.5)*0.8, Math.sin(a)*r);
+                }
+            },
+            flower: () => {
+                const u = Math.random()*Math.PI, v = Math.random()*Math.PI*2, k = 3, r = 15*Math.sin(k*u);
+                return new THREE.Vector3(r*Math.sin(u)*Math.cos(v), r*Math.sin(u)*Math.sin(v), r*Math.cos(u)).multiplyScalar(1.2);
             }
         };
 
         let animateMorph = true;
         window.setShape = (name) => {
-            const attr = geometry.attributes.target;
-            const cAttr = geometry.attributes.color;
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            const targetAttr = geometry.attributes.target;
             for(let i=0; i<PARTICLE_COUNT; i++) {
-                const v = shapes[name](i);
-                attr.setXYZ(i, v.x, v.y, v.z);
+                const v = shapes[name](i, PARTICLE_COUNT);
+                targetAttr.setXYZ(i, v.x, v.y, v.z);
             }
-            attr.needsUpdate = true;
-            cAttr.needsUpdate = true;
+            targetAttr.needsUpdate = true;
             material.uniforms.uMorph.value = 0;
             animateMorph = true;
         };
-        // Init
-        window.setShape('galaxy');
+        // Init shape
+        for(let i=0; i<PARTICLE_COUNT; i++) { const v = shapes.heart(i, PARTICLE_COUNT); geometry.attributes.target.setXYZ(i, v.x, v.y, v.z); }
+        geometry.attributes.target.needsUpdate = true;
 
-
-        // --- 4. 稳健的 AI 初始化 ---
-        let targetScale = 1.0;
-        let targetRotZ = 0.0;
+        // --- 核心：MediaPipe 修复版 ---
+        let targetScale = 1.0, targetDisplace = 0.0, targetFlipRot = 0.0;
+        let isCrossingHands = false;
 
         function onResults(results) {
-            if(!results.multiHandLandmarks) return;
+            document.getElementById('status-msg').style.display = 'none'; // 识别成功，隐藏提示
             
-            const hands = results.multiHandLandmarks;
-            debugPanel.innerText = `FPS: ${Math.round(frames)} | AI: Running | Hands: ${hands.length}`;
-
-            if(hands.length === 2) {
-                const h1 = hands[0][0];
-                const h2 = hands[1][0];
-                const dist = Math.hypot(h1.x - h2.x, h1.y - h2.y);
-                targetScale = 0.5 + dist * 3.0;
+            const numHands = results.multiHandLandmarks.length;
+            if (numHands === 2) {
+                const [h1, h2] = results.multiHandLandmarks;
+                const dist = Math.sqrt(Math.pow(h1[0].x-h2[0].x,2) + Math.pow(h1[0].y-h2[0].y,2) + Math.pow(h1[0].z-h2[0].z,2));
+                targetScale = THREE.MathUtils.clamp(THREE.MathUtils.mapLinear(dist, 0.1, 0.6, 0.4, 2.2), 0.3, 2.5);
                 
-                // 简单的旋转逻辑
-                const dy = h1.y - h2.y;
-                targetRotZ = dy * 2.0; 
-                controls.autoRotate = false;
-            } else {
+                const xDist = Math.abs(h1[0].x - h2[0].x);
+                if (xDist < 0.1 && !isCrossingHands) {
+                    isCrossingHands = true;
+                    targetFlipRot = material.uniforms.uFlipRot.value + Math.PI;
+                } else if (xDist > 0.2) isCrossingHands = false;
+                
+                targetDisplace = 0.0;
+                controls.autoRotateSpeed = 1.2;
+            } else if (numHands === 1) {
+                const h = results.multiHandLandmarks[0];
+                const pinch = Math.sqrt(Math.pow(h[4].x-h[8].x,2) + Math.pow(h[4].y-h[8].y,2));
+                targetDisplace = pinch > 0.08 ? (pinch - 0.08) * 8.0 : 0.0;
                 targetScale = 1.0;
-                targetRotZ *= 0.9;
-                controls.autoRotate = true;
+                controls.autoRotateSpeed = 2.5;
+            } else {
+                targetScale = 1.0; targetDisplace = 0.0; controls.autoRotateSpeed = 0.8;
             }
         }
 
-        async function initAI() {
-            try {
-                const video = document.getElementById('video-input');
-                const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-                
-                // --- 关键优化：使用 Lite 模型 ---
-                hands.setOptions({
-                    maxNumHands: 2,
-                    modelComplexity: 0, // 0 = Lite (最快), 1 = Full
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-                
-                hands.onResults(onResults);
+        // 启动摄像头逻辑
+        const videoElement = document.getElementById('video-input');
         
-                const cameraUtils = new Camera(video, {
-                    onFrame: async () => { await hands.send({image: video}); },
-                    width: 320, // 强制低分辨率
-                    height: 240
+        // 确保 window.Hands 存在（如果脚本加载慢，这里会报错，但我们放在head里同步加载了，应该没事）
+        if (window.Hands) {
+            const hands = new window.Hands({locateFile: (file) => {
+                // 关键修复：强制指向 CDN 路径，防止 404
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+            
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            hands.onResults(onResults);
+
+            if (window.Camera) {
+                const cameraUtils = new window.Camera(videoElement, {
+                    onFrame: async () => { await hands.send({image: videoElement}); },
+                    width: 320, height: 240
                 });
-                
-                await cameraUtils.start();
-            } catch (error) {
-                console.error(error);
-                document.getElementById('error-msg').innerText = "AI 启动失败: " + error.message;
-                document.getElementById('error-msg').style.display = 'block';
+                cameraUtils.start().catch(err => {
+                    document.getElementById('status-msg').innerText = "错误：无法访问摄像头 " + err;
+                });
             }
+        } else {
+            document.getElementById('status-msg').innerText = "错误：AI 模型加载失败，请检查网络";
         }
 
-        // 延迟启动 AI，让页面先渲染出来
-        setTimeout(initAI, 1000);
+        // --- 循环与事件 ---
+        document.getElementById('color-picker').addEventListener('input', (e) => material.uniforms.uGlobalColor.value.set(e.target.value));
+        document.getElementById('fs-btn').addEventListener('click', () => !document.fullscreenElement ? document.documentElement.requestFullscreen() : document.exitFullscreen());
+        window.addEventListener('resize', () => { camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
 
-
-        // --- 5. 渲染循环 ---
         const clock = new THREE.Clock();
-        
         function animate() {
             requestAnimationFrame(animate);
-            
-            // FPS 计算
-            const now = performance.now();
-            if (now - lastTime >= 1000) {
-                frames = 0;
-                lastTime = now;
-            }
-            frames++;
-
             const dt = clock.getDelta();
             material.uniforms.uTime.value = clock.getElapsedTime();
+            
+            const sensitivity = 0.35;
+            material.uniforms.uHandScale.value += (targetScale - material.uniforms.uHandScale.value) * sensitivity;
+            material.uniforms.uHandDisplace.value += (targetDisplace - material.uniforms.uHandDisplace.value) * sensitivity;
+            material.uniforms.uFlipRot.value += (targetFlipRot - material.uniforms.uFlipRot.value) * 0.1;
 
-            // 平滑交互
-            material.uniforms.uScale.value += (targetScale - material.uniforms.uScale.value) * 0.1;
-            material.uniforms.uRotZ.value += (targetRotZ - material.uniforms.uRotZ.value) * 0.1;
-
-            if(animateMorph) {
-                material.uniforms.uMorph.value += dt * 0.5;
-                if(material.uniforms.uMorph.value >= 1.0) {
+            if (animateMorph) {
+                material.uniforms.uMorph.value += dt * 0.7;
+                if (material.uniforms.uMorph.value >= 1.0) {
                     material.uniforms.uMorph.value = 1.0;
                     animateMorph = false;
-                    // Copy target to pos
-                    const p = geometry.attributes.position.array;
-                    const t = geometry.attributes.target.array;
+                    const p = geometry.attributes.position.array, t = geometry.attributes.target.array;
                     for(let i=0; i<p.length; i++) p[i] = t[i];
                     geometry.attributes.position.needsUpdate = true;
                     material.uniforms.uMorph.value = 0.0;
                 }
             }
-
             controls.update();
             renderer.render(scene, camera);
         }
-
         animate();
-        
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 </html>
