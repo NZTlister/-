@@ -2,84 +2,132 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Gesture Controlled Romantic Particles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Romantic Particle System Pro</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.25);
+            --primary-color: #ff69b4;
+        }
+        body { margin: 0; overflow: hidden; background: #080810; font-family: 'Segoe UI', Roboto, sans-serif; }
         
-        /* 视频隐藏，只用于识别 */
-        #video-input { position: absolute; top: 0; left: 0; opacity: 0; pointer-events: none; z-index: -1; }
-        
-        /* 全屏Canvas */
-        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        /* 3D 容器 */
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%); }
 
-        /* UI 面板 */
+        /* UI 通用毛玻璃风格 */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        /* 摄像头窗口 */
+        #camera-container {
+            position: absolute;
+            top: 20px;
+            right: 80px; /* 留出全屏按钮位置 */
+            width: 160px;
+            height: 120px;
+            z-index: 10;
+            border-radius: 16px;
+            overflow: hidden;
+            opacity: 0; /* 初始隐藏，启动后显示 */
+            transform: translateY(-20px);
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        #camera-container.active { opacity: 1; transform: translateY(0); }
+        #video-input { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scaleX(-1); /* 镜像显示 */
+        }
+
+        /* 底部控制面板 */
         #ui-panel {
             position: absolute;
             bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            padding: 15px 25px;
-            border-radius: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 20px;
+            border-radius: 40px;
             display: flex;
-            gap: 15px;
+            gap: 12px;
             align-items: center;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            transition: all 0.3s ease;
         }
-
-        #ui-panel:hover { background: rgba(255, 255, 255, 0.15); box-shadow: 0 0 30px rgba(255,105,180, 0.3); }
-
+        
         .btn {
-            background: transparent;
-            border: 1px solid rgba(255,255,255,0.4);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--glass-border);
+            color: rgba(255,255,255,0.8);
+            padding: 10px 18px;
+            border-radius: 30px;
             cursor: pointer;
-            transition: 0.3s;
-            font-size: 14px;
+            transition: 0.2s;
+            font-size: 15px;
+            display: flex; align-items: center; gap: 6px;
+            outline: none;
         }
 
-        .btn:hover, .btn.active { background: rgba(255, 255, 255, 0.9); color: #000; }
+        .btn:hover { background: rgba(255,255,255,0.2); color: white; transform: translateY(-2px); }
+        .btn.active { background: var(--primary-color); border-color: var(--primary-color); color: white; box-shadow: 0 0 15px var(--primary-color); }
         
         /* 颜色选择器美化 */
-        input[type="color"] {
-            border: none; width: 32px; height: 32px; cursor: pointer; background: none; padding: 0;
+        .color-wrapper {
+            width: 36px; height: 36px; border-radius: 50%; overflow: hidden; border: 2px solid rgba(255,255,255,0.5); cursor: pointer; transition: 0.3s;
         }
+        .color-wrapper:hover { border-color: white; transform: scale(1.1); }
+        input[type="color"] { border: none; width: 200%; height: 200%; cursor: pointer; background: none; padding: 0; transform: translate(-25%, -25%); }
         
         /* 全屏按钮 */
-        #fs-btn { position: absolute; top: 20px; right: 20px; z-index: 10; font-size: 20px; background: none; border: none; color: white; cursor: pointer; opacity: 0.7; }
-        #fs-btn:hover { opacity: 1; text-shadow: 0 0 10px white; }
+        #fs-btn { 
+            position: absolute; top: 20px; right: 20px; z-index: 11; 
+            width: 44px; height: 44px; border-radius: 50%; font-size: 22px; 
+            padding: 0; display: flex; justify-content: center; align-items: center;
+        }
 
         /* 加载提示 */
         #loading {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: white; z-index: 20; font-size: 24px; letter-spacing: 2px;
-            text-shadow: 0 0 10px cyan; pointer-events: none;
+            color: white; z-index: 20; font-size: 18px; letter-spacing: 1px;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255,105,180,0.7); pointer-events: none;
         }
+        #loading .spinner {
+            margin: 0 auto 20px; width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--primary-color);
+            border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <video id="video-input"></video>
-    
     <div id="canvas-container"></div>
     
-    <div id="loading">正在初始化视觉核心... 请授予摄像头权限</div>
+    <div id="camera-container" class="glass-panel">
+        <video id="video-input"></video>
+    </div>
+    
+    <div id="loading">
+        <div class="spinner"></div>
+        正在启动视觉引擎...<br>请授予摄像头权限以体验互动
+    </div>
 
-    <button id="fs-btn">⛶</button>
+    <button id="fs-btn" class="btn glass-panel">⛶</button>
 
-    <div id="ui-panel">
+    <div id="ui-panel" class="glass-panel">
         <button class="btn active" onclick="setShape('heart')">❤ 爱心</button>
         <button class="btn" onclick="setShape('galaxy')">🌌 星系</button>
         <button class="btn" onclick="setShape('saturn')">🪐 土星</button>
-        <button class="btn" onclick="setShape('flower')">❀ 花朵</button>
-        <div style="width:1px; height:20px; background:rgba(255,255,255,0.3)"></div>
-        <input type="color" id="color-picker" value="#ff69b4" title="粒子颜色">
+        <button class="btn" onclick="setShape('flower')">🌸 花朵</button>
+        <div style="width:1px; height:24px; background:rgba(255,255,255,0.2); margin: 0 5px;"></div>
+        <div class="color-wrapper" title="调整粒子颜色">
+             <input type="color" id="color-picker" value="#ff69b4">
+        </div>
     </div>
 
     <script type="importmap">
@@ -100,329 +148,370 @@
         // --- 1. 初始化场景 ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.02); // 增加深邃感
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 40;
+        // 移除之前的Fog，背景改用CSS径向渐变，更通透
+        
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.z = 45; // 稍微拉远一点视角
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比，提升性能
         container.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.5;
+        controls.autoRotateSpeed = 0.8; // 基础旋转速度
 
-        // --- 2. 粒子系统 (基于 Shader) ---
-        const PARTICLE_COUNT = 30000;
+        // --- 2. 高性能粒子系统 (Shader增强版) ---
+        const PARTICLE_COUNT = 40000; // 增加粒子数量
         const geometry = new THREE.BufferGeometry();
         
-        // 属性数组
-        const positions = new Float32Array(PARTICLE_COUNT * 3); // 当前位置
-        const targets = new Float32Array(PARTICLE_COUNT * 3);   // 目标形状位置
-        const randoms = new Float32Array(PARTICLE_COUNT * 3);   // 随机因子（用于噪声）
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const targets = new Float32Array(PARTICLE_COUNT * 3);
+        const randoms = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3); // 每个粒子可以有微小的颜色差异
         
-        for(let i=0; i<PARTICLE_COUNT * 3; i++) {
-            positions[i] = (Math.random() - 0.5) * 100; // 初始随机分布
-            randoms[i] = Math.random();
+        const baseColor = new THREE.Color('#ff69b4');
+        
+        for(let i=0; i<PARTICLE_COUNT; i++) {
+            const i3 = i * 3;
+            positions[i3] = (Math.random() - 0.5) * 150;
+            positions[i3+1] = (Math.random() - 0.5) * 150;
+            positions[i3+2] = (Math.random() - 0.5) * 150;
+            
+            randoms[i3] = Math.random(); 
+            randoms[i3+1] = Math.random();
+            randoms[i3+2] = Math.random();
+
+            // 给每个粒子一个基础颜色的微调，更丰富
+            const colorStyle = baseColor.clone().offsetHSL(Math.random() * 0.1 - 0.05, 0, 0);
+            colors[i3] = colorStyle.r;
+            colors[i3+1] = colorStyle.g;
+            colors[i3+2] = colorStyle.b;
         }
 
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('target', new THREE.BufferAttribute(targets, 3));
         geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 3));
+        geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
 
-        // Shader 材质：实现浪漫的光晕和变形
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uTime: { value: 0 },
-                uColor: { value: new THREE.Color('#ff69b4') },
-                uMorph: { value: 0 }, // 0 = 保持当前，1 = 变为目标
-                uHandScale: { value: 1.0 }, // 手势控制缩放
-                uHandDisplace: { value: 0.0 }, // 手势控制扩散
-                uMouse: { value: new THREE.Vector3(0,0,0) }
+                uGlobalColor: { value: new THREE.Color('#ff69b4') },
+                uMorph: { value: 0 }, 
+                uHandScale: { value: 1.0 }, 
+                uHandDisplace: { value: 0.0 },
+                uFlipRot: { value: 0.0 } // 新增：翻转旋转角度
             },
             vertexShader: `
                 uniform float uTime;
                 uniform float uMorph;
                 uniform float uHandScale;
                 uniform float uHandDisplace;
+                uniform float uFlipRot;
                 
                 attribute vec3 target;
                 attribute vec3 aRandom;
+                attribute vec3 aColor;
                 
+                varying vec3 vColor;
                 varying float vAlpha;
 
-                // 简单的噪声函数
-                float random(vec2 st) {
-                    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                // 旋转矩阵函数
+                mat2 rotate2d(float _angle){
+                    return mat2(cos(_angle),-sin(_angle),
+                                sin(_angle),cos(_angle));
                 }
 
                 void main() {
-                    // 1. 混合当前位置与目标形状 (Lerp)
-                    // 在CPU端我们实际上是直接更新Attribute，这里主要处理微动效
+                    vColor = aColor;
+
+                    // 1. Morphing 插值
                     vec3 pos = mix(position, target, uMorph);
                     
-                    // 2. 添加"呼吸"和"漂浮"效果 (浪漫感)
-                    float noise = sin(uTime * 2.0 + aRandom.x * 10.0) * 0.2;
-                    pos += normalize(pos) * noise;
+                    // 2. 更复杂的噪声浮动效果 (模拟空气扰动)
+                    float timeScale = uTime * 1.5;
+                    pos.x += sin(timeScale + aRandom.y * 6.28) * 0.3 * aRandom.x;
+                    pos.y += cos(timeScale + aRandom.z * 6.28) * 0.3 * aRandom.y;
+                    pos.z += sin(timeScale + aRandom.x * 6.28) * 0.3 * aRandom.z;
 
-                    // 3. 手势控制：整体缩放
+                    // 3. 手势控制：整体缩放 (应用在旋转前)
                     pos *= uHandScale;
 
-                    // 4. 手势控制：炸裂/扩散效果 (基于随机方向)
-                    vec3 explosion = normalize(pos) * uHandDisplace * 20.0;
-                    pos += explosion;
+                    // 4. 手势控制：翻转特效 (绕Y轴旋转)
+                    float flipS = sin(uFlipRot);
+                    float flipC = cos(uFlipRot);
+                    mat2 flipMat = mat2(flipC, -flipS, flipS, flipC);
+                    pos.xz = flipMat * pos.xz;
 
-                    // 5. 旋转效果 (为了看起来更灵动)
-                    float angle = uTime * 0.1 * (1.0 - aRandom.y);
-                    float s = sin(angle);
-                    float c = cos(angle);
-                    // 简单的Y轴旋转矩阵
-                    mat2 rot = mat2(c, -s, s, c);
-                    pos.xz = rot * pos.xz;
+                    // 5. 手势控制：炸裂/扩散 (应用在旋转后，确保方向正确)
+                    // 使用原始位置的法线方向，让爆炸更具爆发力
+                    vec3 explosionDir = normalize(pos + vec3(0.001)); 
+                    pos += explosionDir * uHandDisplace * 25.0;
+
+                    // 6. 自身微妙旋转
+                    pos.xz = rotate2d(uTime * 0.05 * (aRandom.x - 0.5)) * pos.xz;
 
                     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
                     
-                    // 粒子大小随距离变化
-                    gl_PointSize = (4.0 * uHandScale + noise * 2.0) * (30.0 / -mvPosition.z);
+                    // 粒子大小随距离和手势变化
+                    float baseSize = 3.5 * uHandScale;
+                    // 捏合爆炸时粒子变大
+                    baseSize += uHandDisplace * 2.0; 
+                    gl_PointSize = baseSize * (35.0 / -mvPosition.z);
                     
                     gl_Position = projectionMatrix * mvPosition;
                     
-                    // 边缘粒子透明度低
-                    vAlpha = 0.8 + noise * 0.2;
+                    // 边缘粒子透明度变化
+                    vAlpha = smoothstep(100.0, 0.0, length(pos)) * 0.9 + 0.1;
                 }
             `,
             fragmentShader: `
-                uniform vec3 uColor;
+                uniform vec3 uGlobalColor;
+                varying vec3 vColor;
                 varying float vAlpha;
 
                 void main() {
-                    // 绘制圆形粒子
                     vec2 coord = gl_PointCoord - vec2(0.5);
                     float dist = length(coord);
+                    
+                    // 柔软的圆形光晕
+                    float glow = 1.0 - smoothstep(0.0, 0.5, dist);
+                    glow = pow(glow, 2.0); 
                     if (dist > 0.5) discard;
 
-                    // 径向渐变，制造发光感
-                    float glow = 1.0 - (dist * 2.0);
-                    glow = pow(glow, 1.5); 
+                    // 混合固有色和全局控制色
+                    vec3 finalColor = mix(vColor, uGlobalColor, 0.7);
+                    
+                    // 核心更亮
+                    finalColor += vec3(glow * 0.5);
 
-                    gl_FragColor = vec4(uColor, vAlpha * glow);
+                    gl_FragColor = vec4(finalColor, vAlpha * glow);
                 }
             `,
             transparent: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending // 关键：加法混合让粒子重叠处发光
+            blending: THREE.AdditiveBlending 
         });
 
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // --- 3. 形状生成数学公式 ---
-        
-        function getPointOnHeart(t) {
-            // 3D 心形公式
-            const x = 16 * Math.pow(Math.sin(t), 3);
-            const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-            const z = 1; 
-            return new THREE.Vector3(x, y, z);
-        }
-
+        // --- 3. 形状生成公式 (优化版) ---
         const shapes = {
-            heart: (i) => {
-                // 使用参数方程填充
-                // 为了让心形立体，我们添加一些随机的Z深度和内部填充
-                const phi = Math.random() * Math.PI * 2;
+            heart: (i, total) => {
                 const theta = Math.random() * Math.PI;
-                // 基本心形轮廓
+                const phi = Math.random() * Math.PI * 2;
+                // 更饱满的心形参数
                 let x = 16 * Math.pow(Math.sin(theta), 3) * Math.cos(phi);
                 let y = 13 * Math.cos(theta) - 5 * Math.cos(2*theta) - 2 * Math.cos(3*theta) - Math.cos(4*theta);
-                let z = 16 * Math.pow(Math.sin(theta), 3) * Math.sin(phi) * 0.5; // 压扁一点z轴
-                return new THREE.Vector3(x, y, z).multiplyScalar(0.8);
+                let z = 16 * Math.pow(Math.sin(theta), 3) * Math.sin(phi) * 0.6;
+                // 增加一些随机散布
+                const p = new THREE.Vector3(x, y, z).multiplyScalar(0.9);
+                p.addScaledVector(new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5), 1.5);
+                return p;
             },
-            galaxy: (i) => {
-                // 螺旋星系
-                const branchAngle = (i % 3) * ((2 * Math.PI) / 3);
-                const radius = Math.random() * 30;
-                const spinAngle = radius * 0.5; // 越远转得越多
+            galaxy: (i, total) => {
+                // 带有中心核的旋涡星系
+                const arms = 5;
+                const spin = i / total * arms * Math.PI * 2;
+                const radius = Math.pow(Math.random(), 1.5) * 35; // 幂函数让中心更密集
                 
-                const randomX = Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 2;
-                const randomY = Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 2;
-                const randomZ = Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 2;
-
-                const x = Math.cos(branchAngle + spinAngle) * radius + randomX;
-                const y = randomY * 2; // 扁平
-                const z = Math.sin(branchAngle + spinAngle) * radius + randomZ;
-                return new THREE.Vector3(x, y, z);
+                const x = Math.cos(spin) * radius;
+                const y = (Math.random() - 0.5) * (radius * 0.1 + 2); // 随半径增加厚度
+                const z = Math.sin(spin) * radius;
+                
+                const p = new THREE.Vector3(x, y, z);
+                // 增加旋臂上的随机扰动
+                p.x += (Math.random()-0.5) * 3;
+                p.z += (Math.random()-0.5) * 3;
+                return p;
             },
-            saturn: (i) => {
-                // 星球 + 环
-                if (i < PARTICLE_COUNT * 0.7) {
+            saturn: (i, total) => {
+                if (i < total * 0.65) {
                     // 星球本体
-                    const r = 8;
+                    const r = 9;
                     const theta = Math.random() * Math.PI * 2;
                     const phi = Math.acos((Math.random() * 2) - 1);
-                    const x = r * Math.sin(phi) * Math.cos(theta);
-                    const y = r * Math.sin(phi) * Math.sin(theta);
-                    const z = r * Math.cos(phi);
-                    return new THREE.Vector3(x, y, z);
+                    return new THREE.Vector3(
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.sin(phi) * Math.sin(theta),
+                        r * Math.cos(phi)
+                    );
                 } else {
-                    // 环
+                    // 光环 (更密集且有宽度)
                     const angle = Math.random() * Math.PI * 2;
-                    const r = 12 + Math.random() * 10;
-                    const x = Math.cos(angle) * r;
-                    const z = Math.sin(angle) * r;
-                    const y = (Math.random() - 0.5) * 0.5;
-                    return new THREE.Vector3(x, y, z);
+                    const rMin = 13, rMax = 22;
+                    const r = rMin + Math.random() * (rMax - rMin);
+                    return new THREE.Vector3(
+                        Math.cos(angle) * r,
+                        (Math.random() - 0.5) * 0.8, // 非常薄
+                        Math.sin(angle) * r
+                    );
                 }
             },
-            flower: (i) => {
-                // 简单的花朵形状 (玫瑰曲线变体)
-                const u = Math.random() * Math.PI * 4; // 角度
-                const v = Math.random() * 20; // 半径分布
-                const k = 4; // 花瓣数
-                const r = Math.cos(k * u) * 15 + v * 0.5;
-                const x = r * Math.cos(u);
-                const y = r * Math.sin(u);
-                const z = (Math.random() - 0.5) * 5 + Math.sin(v)*2;
-                return new THREE.Vector3(x, y, z);
+            flower: (i, total) => {
+                // 玫瑰花球
+                const u = Math.random() * Math.PI;
+                const v = Math.random() * Math.PI * 2;
+                const k = 3; // 花瓣系数
+                const r = 15 * Math.sin(k * u); // 花瓣形状半径
+                
+                // 球坐标转换
+                const x = r * Math.sin(u) * Math.cos(v);
+                const y = r * Math.sin(u) * Math.sin(v);
+                const z = r * Math.cos(u);
+                
+                return new THREE.Vector3(x, y, z).multiplyScalar(1.2);
             }
         };
 
-        // 切换形状逻辑
-        let currentShape = 'heart';
+        // 形状切换逻辑
+        let animateMorph = true;
         window.setShape = (shapeName) => {
-            currentShape = shapeName;
-            
-            // UI 更新
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
+            document.querySelectorAll('#ui-panel .btn').forEach(b => b.classList.remove('active'));
+            event.currentTarget.classList.add('active');
 
-            // 重新计算目标位置
             const targetAttr = geometry.attributes.target;
             for(let i=0; i<PARTICLE_COUNT; i++) {
-                const vec = shapes[shapeName](i);
+                const vec = shapes[shapeName](i, PARTICLE_COUNT);
                 targetAttr.setXYZ(i, vec.x, vec.y, vec.z);
             }
             targetAttr.needsUpdate = true;
             
-            // 重置变形进度
             material.uniforms.uMorph.value = 0;
             animateMorph = true;
         };
 
-        // 初始化第一次形状
+        // 初始形状
         const targetAttr = geometry.attributes.target;
         for(let i=0; i<PARTICLE_COUNT; i++) {
-            const vec = shapes.heart(i);
+            const vec = shapes.heart(i, PARTICLE_COUNT);
             targetAttr.setXYZ(i, vec.x, vec.y, vec.z);
         }
         targetAttr.needsUpdate = true;
 
-        // --- 4. 手势识别逻辑 (MediaPipe) ---
+        // --- 4. 高灵敏度手势识别 (MediaPipe) ---
         
-        let handScaleTarget = 1.0;
-        let handDisplaceTarget = 0.0;
-        let targetColor = new THREE.Color('#ff69b4');
-        let isHandsDetected = false;
+        // 目标值（未经平滑）
+        let targetScale = 1.0;
+        let targetDisplace = 0.0;
+        let targetFlipRot = 0.0;
+
+        let isHandsVisible = false;
+        let isCrossingHands = false; // 是否交叉双手
 
         async function initMediaPipe() {
-            // 动态加载 MediaPipe
             const { Hands } = window;
             const { Camera } = window;
 
-            if(!Hands || !Camera) {
-                console.error("MediaPipe libraries not loaded");
-                return;
-            }
-
-            const hands = new Hands({locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-            }});
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
 
             hands.setOptions({
                 maxNumHands: 2,
                 modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
+                minDetectionConfidence: 0.6, // 提高置信度阈值，减少误判
+                minTrackingConfidence: 0.6
             });
 
             hands.onResults(onResults);
 
-            const video = document.getElementById('video-input');
-            const camera = new Camera(video, {
+            const videoElement = document.getElementById('video-input');
+            const cameraUtils = new Camera(videoElement, {
                 onFrame: async () => {
-                    await hands.send({image: video});
+                    await hands.send({image: videoElement});
                 },
-                width: 640,
-                height: 480
+                width: 320, // 降低输入分辨率以提高处理速度
+                height: 240
             });
-            camera.start()
-                .then(() => document.getElementById('loading').style.display = 'none')
-                .catch(e => document.getElementById('loading').innerText = '摄像头启动失败，请检查权限');
+            
+            cameraUtils.start()
+                .then(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('camera-container').classList.add('active');
+                })
+                .catch(e => {
+                     document.getElementById('loading').innerHTML = '❌ 摄像头启动失败<br>请检查浏览器权限设置';
+                });
         }
 
         function onResults(results) {
-            isHandsDetected = results.multiHandLandmarks.length > 0;
+            const numHands = results.multiHandLandmarks.length;
+            isHandsVisible = numHands > 0;
 
-            if (results.multiHandLandmarks.length === 2) {
-                // --- 双手逻辑 ---
+            if (numHands === 2) {
+                // --- 双手模式：缩放 & 翻转 ---
                 const hand1 = results.multiHandLandmarks[0];
                 const hand2 = results.multiHandLandmarks[1];
-
-                // 1. 计算两手腕间距，控制缩放
-                const wrist1 = hand1[0]; // 0 是手腕点
+                const wrist1 = hand1[0];
                 const wrist2 = hand2[0];
-                const distance = Math.sqrt(
+
+                // 1. 计算距离控制缩放
+                // 使用三维距离计算更准确
+                const dist = Math.sqrt(
                     Math.pow(wrist1.x - wrist2.x, 2) + 
-                    Math.pow(wrist1.y - wrist2.y, 2)
+                    Math.pow(wrist1.y - wrist2.y, 2) +
+                    Math.pow(wrist1.z - wrist2.z, 2)
                 );
                 
-                // 映射距离到缩放 (0.2 ~ 0.8 是大概的屏幕归一化距离)
-                // 距离越远，模型越大
-                handScaleTarget = 0.5 + (distance * 3.0); 
+                // 映射距离到缩放倍数 (调整映射范围以提高灵敏度)
+                // 0.1 (近) -> 0.4倍, 0.6 (远) -> 2.2倍
+                targetScale = THREE.MathUtils.mapLinear(dist, 0.1, 0.6, 0.4, 2.2);
+                targetScale = THREE.MathUtils.clamp(targetScale, 0.3, 2.5); // 限制范围
 
-                // 2. 检测"反转"手势 (比如两手交叉)
-                if (wrist1.x > wrist2.x) {
-                     // 正常状态，左手在左
-                } else {
-                    // 交叉状态，触发反转旋转速度加快
-                    controls.autoRotateSpeed = 10.0;
+                // 2. 检测双手交叉 (翻转触发)
+                // 简单判断：如果两个手腕的X坐标非常接近，或者顺序发生了变化
+                // 由于 MediaPipe 输出的手顺序不固定，我们判断横向距离是否小于一个阈值
+                const xDist = Math.abs(wrist1.x - wrist2.x);
+                
+                if (xDist < 0.1) { // 阈值，双手靠得很近或交叉
+                    if (!isCrossingHands) {
+                        isCrossingHands = true;
+                        // 触发翻转：目标旋转角度增加 180度 (PI)
+                        targetFlipRot = material.uniforms.uFlipRot.value + Math.PI;
+                    }
+                } else if (xDist > 0.2) { // 阈值，双手分开
+                     isCrossingHands = false;
                 }
 
-            } else if (results.multiHandLandmarks.length === 1) {
-                // --- 单手逻辑 ---
+                targetDisplace = 0.0;
+                controls.autoRotateSpeed = 1.2; // 双手时稍快旋转
+
+            } else if (numHands === 1) {
+                // --- 单手模式：捏合/炸裂 ---
                 const hand = results.multiHandLandmarks[0];
+                const thumbTip = hand[4];
+                const indexTip = hand[8];
                 
-                // 计算食指(8)和拇指(4)的距离 -> 控制粒子扩散/凝聚
-                const thumb = hand[4];
-                const index = hand[8];
                 const pinchDist = Math.sqrt(
-                    Math.pow(thumb.x - index.x, 2) + 
-                    Math.pow(thumb.y - index.y, 2)
+                    Math.pow(thumbTip.x - indexTip.x, 2) + 
+                    Math.pow(thumbTip.y - indexTip.y, 2)
                 );
 
-                // 张开手(距离大) = 粒子扩散/爆炸; 捏合 = 粒子凝聚
-                if (pinchDist > 0.1) {
-                    handDisplaceTarget = (pinchDist - 0.1) * 5.0; // 扩散力度
+                // 映射捏合距离到扩散力度 (高灵敏度)
+                // 距离 > 0.08 开始扩散，最大扩散力度更大
+                if (pinchDist > 0.08) {
+                    targetDisplace = (pinchDist - 0.08) * 8.0;
                 } else {
-                    handDisplaceTarget = 0;
+                    targetDisplace = 0.0;
                 }
-                
-                handScaleTarget = 1.0;
-                controls.autoRotateSpeed = 2.0;
+                targetScale = 1.0;
+                controls.autoRotateSpeed = 2.5; // 单手操作时背景旋转加快，增加动感
+
             } else {
-                // 无手势，恢复默认
-                handScaleTarget = 1.0;
-                handDisplaceTarget = 0.0;
-                controls.autoRotateSpeed = 0.5;
+                // --- 无手势复位 ---
+                targetScale = 1.0;
+                targetDisplace = 0.0;
+                // 保持当前的翻转角度目标，不复位
+                controls.autoRotateSpeed = 0.8;
             }
         }
 
-        // 延迟加载 MediaPipe 以避免阻塞页面
+        // 延迟加载视觉库
         setTimeout(() => {
-            // 简单的 CDN 检查脚本
             const script = document.createElement('script');
             script.src = "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
             script.onload = () => {
@@ -432,68 +521,54 @@
                  document.body.appendChild(camScript);
             };
             document.body.appendChild(script);
-        }, 1000);
+        }, 500);
 
 
         // --- 5. 交互与动画循环 ---
         
-        // 颜色选择器
+        // 颜色选择
         const colorPicker = document.getElementById('color-picker');
+        const targetColor = new THREE.Color(colorPicker.value);
         colorPicker.addEventListener('input', (e) => {
             targetColor.set(e.target.value);
+            document.querySelector('.color-wrapper').style.borderColor = e.target.value;
         });
 
-        // 全屏逻辑
+        // 全屏
         document.getElementById('fs-btn').addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
-            }
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
         });
 
-        let animateMorph = true;
         const clock = new THREE.Clock();
 
         function animate() {
             requestAnimationFrame(animate);
-
             const dt = clock.getDelta();
             const time = clock.getElapsedTime();
 
-            // 1. 更新 Uniforms
             material.uniforms.uTime.value = time;
-            
-            // 颜色平滑过渡
-            material.uniforms.uColor.value.lerp(targetColor, 0.05);
+            material.uniforms.uGlobalColor.value.lerp(targetColor, 0.08);
 
-            // 手势数值平滑过渡 (Lerp)
-            material.uniforms.uHandScale.value += (handScaleTarget - material.uniforms.uHandScale.value) * 0.1;
-            material.uniforms.uHandDisplace.value += (handDisplaceTarget - material.uniforms.uHandDisplace.value) * 0.1;
+            // --- 核心：高灵敏度平滑过渡 ---
+            // 提高 lerp 系数 (从 0.1 提高到 0.35)，让跟随更紧密
+            const sensitivity = 0.35; 
+            material.uniforms.uHandScale.value += (targetScale - material.uniforms.uHandScale.value) * sensitivity;
+            material.uniforms.uHandDisplace.value += (targetDisplace - material.uniforms.uHandDisplace.value) * sensitivity;
 
-            // 形状变形过渡 (从当前位置到 target)
-            // 这里我们用了一个技巧：我们在shader里做mix，
-            // 但如果一直只改shader，target一旦变了会瞬变。
-            // 真正的酷炫做法是每帧在JS里更新position属性向target靠近（CPU开销大），
-            // 或者使用两个attribute buffer做ping-pong。
-            // 为了简化且保持高性能，我们使用Shader里的uMorph控制：
-            // 当点击按钮时，uMorph从0增加到1。当完全到达1时，我们可以在JS里把position更新为target，然后重置uMorph。
-            
+            // 翻转角度平滑过渡 (稍微慢一点，看起来更优雅)
+            material.uniforms.uFlipRot.value += (targetFlipRot - material.uniforms.uFlipRot.value) * 0.1;
+
+            // 形状变形逻辑
             if (animateMorph) {
-                material.uniforms.uMorph.value += dt * 0.8; // 变形速度
+                material.uniforms.uMorph.value += dt * 0.7; // 变形速度
                 if (material.uniforms.uMorph.value >= 1.0) {
                     material.uniforms.uMorph.value = 1.0;
                     animateMorph = false;
-                    
-                    // 将当前的position buffer更新为target的内容，以便下次变形
-                    // 注意：这步在大量粒子时可能略耗时，但在变形结束瞬间做一次通常无感
+                    // 完成变形后，更新position buffer
                     const posArr = geometry.attributes.position.array;
                     const targetArr = geometry.attributes.target.array;
-                    for(let i=0; i<posArr.length; i++) {
-                        posArr[i] = targetArr[i];
-                    }
+                    for(let i=0; i<posArr.length; i++) posArr[i] = targetArr[i];
                     geometry.attributes.position.needsUpdate = true;
                     material.uniforms.uMorph.value = 0.0;
                 }
@@ -505,7 +580,6 @@
 
         animate();
 
-        // 窗口自适应
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
