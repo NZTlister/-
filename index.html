@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mobile Gesture Particles</title>
+  <title>Ultimate Dual-Hand Particles</title>
   
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
@@ -12,54 +12,23 @@
   
   <style>
     body {
-      margin: 0;
-      padding: 0;
-      background-color: #000;
-      overflow: hidden; /* 禁止滚动 */
-      font-family: sans-serif;
-      /* 禁止移动端长按选中文字 */
-      -webkit-user-select: none;
-      user-select: none;
+      margin: 0; padding: 0; background-color: #000; overflow: hidden;
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      -webkit-user-select: none; user-select: none;
     }
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      /* 移动端自拍通常已经是镜像的，如果发现方向反了，取消下面这行的注释 */
-      /* transform: scaleX(-1); */
-    }
-    canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover; /* 确保画面填满屏幕 */
-    }
+    #container { position: relative; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
     
-    /* 加载提示层 */
     #loading-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.9);
-      color: #00FF00;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      z-index: 100;
-      text-align: center;
-      padding: 20px;
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.95); color: #00FF00;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 100; text-align: center; padding: 20px;
     }
     .spinner {
-      border: 4px solid #333;
-      border-top: 4px solid #00FF00;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 1s linear infinite;
-      margin-bottom: 20px;
+      border: 4px solid rgba(0, 255, 0, 0.2); border-top: 4px solid #00FF00;
+      border-radius: 50%; width: 50px; height: 50px;
+      animation: spin 1s linear infinite; margin-bottom: 30px;
     }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
@@ -68,7 +37,8 @@
 
   <div id="loading-overlay">
     <div class="spinner"></div>
-    <h3 id="status-text">Downloading AI Model...<br>(This takes time on first load)</h3>
+    <h2 id="status-text">Initializing Ultimate Particles...</h2>
+    <p>Please allow camera access.</p>
   </div>
 
   <div id="container">
@@ -83,12 +53,12 @@ const ctx = canvasElement.getContext('2d');
 const loadingOverlay = document.getElementById('loading-overlay');
 const statusText = document.getElementById('status-text');
 
-// --- 状态定义 ---
+// --- 配置与状态 ---
+const MAX_PARTICLES = 1500; // 粒子数量大幅增加
 const STATE_WAITING = 0;
 const STATE_RUNNING = 1;
 let gameState = STATE_WAITING;
 
-// --- 屏幕适配 ---
 function resizeCanvas() {
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
@@ -96,222 +66,238 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// --- 粒子系统变量 ---
 let particles = [];
-let forceDirection = 1;
-let palmFacingCamera = true;
-let targetX = 0, targetY = 0;
-let isHandDetected = false;
+// 存储当前活跃的手的数据
+let activeHands = []; 
 
-// --- 粒子类定义 ---
+// --- 炫酷粒子类 ---
 class Particle {
   constructor(w, h) {
-    this.x = Math.random() * w;
-    this.y = Math.random() * h;
-    this.vx = (Math.random() - 0.5) * 3; // 移动端稍微减慢速度
-    this.vy = (Math.random() - 0.5) * 3;
-    this.life = 1.0;
-    this.r = 100 + Math.random() * 155;
-    this.g = 200 + Math.random() * 55;
-    this.b = 255;
-    this.size = Math.random() * 4 + 2; // 稍微变大一点点，移动端看着清楚
+    this.reset(w, h);
+    this.life = Math.random() * 0.5; // 初始随机生命值避免同时产生
   }
-  update(tx, ty, forceDir, hasTarget) {
-    if (hasTarget) {
-      let dx = tx - this.x;
-      let dy = ty - this.y;
-      let dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
-      let nx = dx / dist;
-      let ny = dy / dist;
-      let force = 0.6 * forceDir; // 稍微加大力度
-      if (dist < 40) force *= 0.1;
-      this.vx += nx * force;
-      this.vy += ny * force;
-    } else {
-      this.vx += (Math.random() - 0.5) * 0.2;
-      this.vy += (Math.random() - 0.5) * 0.2;
+
+  reset(w, h, x, y) {
+    this.x = x !== undefined ? x : Math.random() * w;
+    this.y = y !== undefined ? y : Math.random() * h;
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = (Math.random() - 0.5) * 2;
+    this.life = 1.0;
+    // 基础色调 (青蓝色系)
+    this.baseHue = 180 + Math.random() * 60; 
+    this.hue = this.baseHue;
+    this.size = Math.random() * 3 + 1;
+    this.lightness = 50;
+  }
+
+  update(w, h, hands) {
+    // 1. 基础随机扰动 (布朗运动)
+    this.vx += (Math.random() - 0.5) * 0.1;
+    this.vy += (Math.random() - 0.5) * 0.1;
+
+    // 2. 响应所有活跃的手
+    let influenced = false;
+    for (const hand of hands) {
+      let dx = hand.x - this.x;
+      let dy = hand.y - this.y;
+      let distSq = dx*dx + dy*dy;
+      let dist = Math.sqrt(distSq);
+
+      // 计算力的大小 (距离越近力越大)
+      let forceMagnitude = 3000 / (distSq + 100); 
+      
+      // 根据手掌方向决定吸引(1)还是排斥(-1)
+      forceMagnitude *= hand.forceDir; 
+      
+      this.vx += (dx / dist) * forceMagnitude;
+      this.vy += (dy / dist) * forceMagnitude;
+
+      // 如果距离近且是吸引状态，粒子染上手的颜色
+      if (dist < 200 && hand.forceDir > 0) {
+        // 缓慢向手的颜色过渡
+        this.hue = this.hue * 0.9 + hand.hue * 0.1;
+        influenced = true;
+      }
     }
-    this.vx *= 0.92; // 增加一点阻尼
-    this.vy *= 0.92;
+    
+    // 如果没有受到手的强烈影响，缓慢恢复基础色
+    if (!influenced) {
+         this.hue = this.hue * 0.98 + this.baseHue * 0.02;
+    }
+
+    // 3. 物理计算 (阻尼、速度)
+    this.vx *= 0.96; // 摩擦力
+    this.vy *= 0.96;
     this.x += this.vx;
     this.y += this.vy;
-    this.life -= 0.008; // 稍微加快消失
-  }
-  draw(ctx) {
-    if (this.life > 0) {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
-      ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.life})`;
-      ctx.fill();
+    this.life -= 0.003; // 生命周期衰减
+
+    // 4. 根据速度改变亮度 (越快越亮)
+    let speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+    this.lightness = Math.min(80, 40 + speed * 5);
+
+    // 5. 边界与重生
+    if (this.life <= 0 || this.x < 0 || this.x > w || this.y < 0 || this.y > h) {
+      this.reset(w, h);
     }
   }
+
+  draw(ctx) {
+    // 使用 HSL 颜色模式实现炫酷光效
+    let alpha = this.life * (this.lightness / 80); // 生命值和亮度共同决定透明度
+    ctx.fillStyle = `hsla(${this.hue}, 100%, ${this.lightness}%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
+    ctx.fill();
+  }
 }
 
-// --- GUI 绘制 (修复的Bug: 只在等待时显示) ---
+// 初始化粒子池
+for (let i = 0; i < MAX_PARTICLES; i++) {
+  particles.push(new Particle(canvasElement.width, canvasElement.height));
+}
+
+// --- GUI ---
 function drawStartGUI() {
-  ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  // 半透明黑色背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
   
-  ctx.fillStyle = '#FFFFFF';
   ctx.textAlign = 'center';
-  
-  // 针对移动端调整字体大小
-  let titleSize = Math.min(canvasElement.width * 0.08, 40);
-  let subSize = Math.min(canvasElement.width * 0.05, 24);
-
-  ctx.font = `bold ${titleSize}px Arial`;
-  ctx.fillText("GESTURE SYSTEM", canvasElement.width / 2, canvasElement.height / 2 - 40);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 40px Arial';
+  ctx.shadowColor = "#00FFFF"; ctx.shadowBlur = 20; // 文字发光
+  ctx.fillText("DUAL-HAND ENERGY", canvasElement.width / 2, canvasElement.height / 2 - 50);
   
   ctx.fillStyle = '#00FFFF';
-  ctx.font = `${subSize}px Arial`;
-  ctx.fillText("Raise Hand High to START", canvasElement.width / 2, canvasElement.height / 2 + 30);
-  ctx.restore();
+  ctx.font = '24px Arial';
+  ctx.shadowBlur = 10;
+  ctx.fillText("Raise Any Hand High to START", canvasElement.width / 2, canvasElement.height / 2 + 30);
+  
+  // 重置阴影
+  ctx.shadowBlur = 0;
 }
 
-// --- 手势逻辑判断 ---
+// --- 核心逻辑 ---
 function checkStartGesture(landmarks) {
-  // 手腕高于屏幕上方 25%
-  return landmarks[0].y < 0.25; 
+  return landmarks[0].y < 0.25; // 手腕抬高
 }
 
+// 判断手心朝向 (适用于镜像后的画面)
+// 如果是右手(Right)，手心朝前时，食指(5)在小指(17)左侧(x更小)
+// 如果是左手(Left)，手心朝前时，食指(5)在小指(17)右侧(x更大)
 function checkPalmOrientation(landmarks, handedness) {
-  // 【新功能：翻转检测】
   const idx_x = landmarks[5].x;
   const pinky_x = landmarks[17].x;
-  let isFacing = false;
-  // 注意：移动端前置摄像头通常不需要镜像判断，直接比较即可
-  // 如果发现反了，把这里逻辑反过来就行
-  if (handedness === 'Right') { 
-     if (idx_x < pinky_x) isFacing = true;
-  } else { 
-     if (idx_x > pinky_x) isFacing = true;
-  }
-  return isFacing;
+  if (handedness === 'Right') return idx_x < pinky_x;
+  else return idx_x > pinky_x;
 }
 
-// --- MediaPipe 主回调 ---
+// --- MediaPipe 回调 ---
 function onResults(results) {
-  // 第一次成功运行后，隐藏 Loading 遮罩
-  if (loadingOverlay.style.display !== 'none') {
-    loadingOverlay.style.display = 'none';
-  }
+  if (loadingOverlay.style.display !== 'none') loadingOverlay.style.display = 'none';
 
-  ctx.save();
-  ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  
-  // 绘制视频底图 (使用 object-fit 效果的绘制方式)
-  // 移动端屏幕比例多样，需要计算裁剪以填满屏幕
-  const img = results.image;
-  const videoRatio = img.width / img.height;
-  const canvasRatio = canvasElement.width / canvasElement.height;
-  let drawWidth, drawHeight, startX, startY;
-  if (canvasRatio > videoRatio) {
-      drawWidth = canvasElement.width;
-      drawHeight = drawWidth / videoRatio;
-      startX = 0;
-      startY = (canvasElement.height - drawHeight) / 2;
-  } else {
-      drawHeight = canvasElement.height;
-      drawWidth = drawHeight * videoRatio;
-      startX = (canvasElement.width - drawWidth) / 2;
-      startY = 0;
-  }
-  ctx.drawImage(img, startX, startY, drawWidth, drawHeight);
+  // 【关键特效 1：拖尾效果】
+  // 不使用 clearRect，而是覆盖一层半透明黑色，形成残影
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; 
+  ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
 
+  // 绘制原始视频底图 (可选，为了更炫酷我们可以不画视频，只画粒子和手)
+  // ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
   const handsData = results.multiHandLandmarks;
   const handednessData = results.multiHandedness;
-  isHandDetected = false;
+  
+  // 重置每帧的活跃手数据
+  activeHands = [];
 
   // --- 状态机 ---
   if (gameState === STATE_WAITING) {
-    drawStartGUI(); // 只在这里绘制 GUI
-    if (handsData && handsData.length > 0) {
-      // 绘制简单骨架辅助对准
-      drawConnectors(ctx, handsData[0], HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-      if (checkStartGesture(handsData[0])) {
-        gameState = STATE_RUNNING; // 切换状态
-        // 初始爆发粒子
-        for(let i=0; i<80; i++) particles.push(new Particle(canvasElement.width, canvasElement.height));
-      }
+    drawStartGUI();
+    if (handsData.length > 0) {
+        // 检查任意一只手是否触发启动
+        for (const landmarks of handsData) {
+            if (checkStartGesture(landmarks)) {
+                gameState = STATE_RUNNING;
+                // 爆发特效：所有粒子重置到中心向外扩散
+                particles.forEach(p => p.reset(canvasElement.width, canvasElement.height, canvasElement.width/2, canvasElement.height/2));
+                break;
+            }
+        }
     }
   } 
   else if (gameState === STATE_RUNNING) {
-    // 运行状态，GUI 已消失
-    if (handsData && handsData.length > 0) {
-      isHandDetected = true;
-      const landmarks = handsData[0];
-      const handedness = handednessData[0].label;
-      
-      // 映射坐标到全屏
-      targetX = startX + landmarks[9].x * drawWidth;
-      targetY = startY + landmarks[9].y * drawHeight;
-      
-      palmFacingCamera = checkPalmOrientation(landmarks, handedness);
+    
+    // 1. 处理所有检测到的手
+    for (let i = 0; i < handsData.length; i++) {
+        const landmarks = handsData[i];
+        const label = handednessData[i].label; // "Left" or "Right"
+        
+        // 计算中心点 (手掌中心)
+        const hx = (landmarks[0].x + landmarks[9].x) / 2 * canvasElement.width;
+        const hy = (landmarks[0].y + landmarks[9].y) / 2 * canvasElement.height;
+        
+        // 判断朝向
+        const isPalm = checkPalmOrientation(landmarks, label);
+        const forceDir = isPalm ? 1 : -1;
 
-      let statusColor = palmFacingCamera ? '#00FF00' : '#FF0000';
-      forceDirection = palmFacingCamera ? 1 : -1;
+        // 根据左右手设置不同的主题色 (Left: Blue/Cyan, Right: Orange/Red)
+        const handHue = label === 'Left' ? 200 : 30;
+        const stateColor = isPalm ? `hsl(${handHue}, 100%, 50%)` : '#FF0000'; // 手背统一红色警告色
 
-      // 手心指示器
-      ctx.beginPath();
-      ctx.arc(targetX, targetY, 20, 0, 2 * Math.PI);
-      ctx.fillStyle = statusColor;
-      ctx.fill();
-      
-      // 简易骨架
-      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#ffffff', lineWidth: 1});
+        // 记录数据供粒子使用
+        activeHands.push({ x: hx, y: hy, forceDir: forceDir, hue: handHue });
+
+        // 绘制手部能量光环
+        ctx.globalCompositeOperation = 'lighter'; // 发光叠加模式
+        
+        // 外圈光晕
+        let gradient = ctx.createRadialGradient(hx, hy, 10, hx, hy, 60);
+        gradient.addColorStop(0, stateColor);
+        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath(); ctx.arc(hx, hy, 60, 0, Math.PI*2); ctx.fill();
+
+        // 核心光点
+        ctx.fillStyle = stateColor;
+        ctx.beginPath(); ctx.arc(hx, hy, 15, 0, Math.PI*2); ctx.fill();
+
+        // 绘制骨架
+        drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: stateColor, lineWidth: 2});
+        drawLandmarks(ctx, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 3});
     }
 
-    // 粒子更新 (移动端减少最大粒子数以保证流畅)
-    if (particles.length < 200) particles.push(new Particle(canvasElement.width, canvasElement.height));
-    for (let i = particles.length - 1; i >= 0; i--) {
-      let p = particles[i];
-      p.update(targetX, targetY, forceDirection, isHandDetected);
-      p.draw(ctx);
-      if (p.life <= 0) particles.splice(i, 1);
+    // 【关键特效 2：发光粒子叠加】
+    ctx.globalCompositeOperation = 'lighter'; 
+
+    // 2. 更新并绘制所有粒子
+    for (const p of particles) {
+        p.update(canvasElement.width, canvasElement.height, activeHands);
+        p.draw(ctx);
     }
   }
-  ctx.restore();
+  // 恢复默认混合模式
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 // --- 初始化 MediaPipe ---
-const hands = new Hands({locateFile: (file) => {
-  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-}});
-
-// 针对移动端优化配置
+const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
 hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 0, // 使用轻量级模型 (0) 以提高移动端速度
+  maxNumHands: 2, // 【关键修改】开启双手支持
+  modelComplexity: 1, // 使用中等模型以平衡双手性能和精度
   minDetectionConfidence: 0.6,
   minTrackingConfidence: 0.6
 });
 hands.onResults(onResults);
 
-// --- 启动摄像头 ---
 const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await hands.send({image: videoElement});
-  },
-  // 移动端不需要太高分辨率进行分析，降低分辨率可以显著提高帧率
-  // 浏览器会自动选择最接近的前置摄像头分辨率
-  width: 640, 
-  height: 480,
-  facingMode: 'user' // 强制使用前置摄像头
+  onFrame: async () => await hands.send({image: videoElement}),
+  width: 1280, height: 720 // 使用较高分辨率以获得更好的双手识别
 });
 
-statusText.innerHTML = "Asking for Camera Permission...<br>Please click 'Allow'.";
-
-camera.start()
-  .then(() => {
-    statusText.innerHTML = "Downloading AI Model (Please Wait)...<br>Depending on network, this may take 10-30s.";
-  })
-  .catch(err => {
-    console.error(err);
-    statusText.innerHTML = "Error: " + err.message + "<br>Make sure you are using HTTPS.";
-    statusText.style.color = "red";
-  });
+statusText.innerHTML = "Downloading AI Model...<br>Prepare for HIGH PERFORMANCE usage.";
+camera.start().catch(err => { statusText.innerHTML = "Error: " + err.message; statusText.style.color = "red"; });
 
 </script>
 </body>
