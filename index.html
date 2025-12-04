@@ -14,115 +14,121 @@
       padding: 0;
       background-color: #000;
       overflow: hidden;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: sans-serif;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      transform: scaleX(-1); /* 整体镜像 */
     }
     canvas {
       display: block;
-      transform: scaleX(-1); /* 镜像显示，符合操作直觉 */
+      width: 100%;
+      height: 100%;
     }
-    #ui-layer {
-      position: absolute;
+    /* 加载提示层（不做镜像，否则字是反的） */
+    #loading-overlay {
+      position: fixed;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      pointer-events: none; /* 让鼠标事件穿透 */
-      z-index: 10;
-      transform: scaleX(-1); /* UI层也镜像，文字需要反着写吗？不，我们在JS里反转文字绘制或者单独处理 */
+      background: #000;
+      color: #00FF00;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      pointer-events: none;
     }
-    /* 修正 UI 文字不被镜像翻转的问题：我们将Canvas翻转了，但文字层我们希望正常显示 */
-    /* 简单起见，我们直接在 Canvas 上绘制所有内容，包括 UI */
+    .spinner {
+      border: 4px solid #333;
+      border-top: 4px solid #00FF00;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 
-  <video id="input_video" style="display: none;"></video>
-  <canvas id="output_canvas"></canvas>
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <h2 id="status-text">Initializing Camera & Model...</h2>
+    <p style="color: #666; font-size: 14px; margin-top: 10px;">Please allow camera access when prompted.</p>
+  </div>
+
+  <div id="container">
+    <video id="input_video" style="display: none;"></video>
+    <canvas id="output_canvas"></canvas>
+  </div>
 
 <script>
-// ==========================================
-// 1. 全局变量与设置
-// ==========================================
 const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('output_canvas');
 const ctx = canvasElement.getContext('2d');
+const loadingOverlay = document.getElementById('loading-overlay');
+const statusText = document.getElementById('status-text');
 
 // 状态定义
 const STATE_WAITING = 0;
 const STATE_RUNNING = 1;
-let gameState = STATE_WAITING; // 初始状态
+let gameState = STATE_WAITING;
 
-// 屏幕尺寸初始化
+// 调整尺寸
 canvasElement.width = window.innerWidth;
 canvasElement.height = window.innerHeight;
-
 window.addEventListener('resize', () => {
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
 });
 
-// 粒子系统变量
+// 粒子系统
 let particles = [];
-let forceDirection = 1; // 1: 吸引, -1: 排斥
+let forceDirection = 1;
 let palmFacingCamera = true;
-let targetX = 0;
-let targetY = 0;
+let targetX = 0, targetY = 0;
 let isHandDetected = false;
 
-// ==========================================
-// 2. 粒子类 (Particle Class)
-// ==========================================
+// 粒子类
 class Particle {
   constructor(w, h) {
     this.x = Math.random() * w;
     this.y = Math.random() * h;
     this.vx = (Math.random() - 0.5) * 4;
     this.vy = (Math.random() - 0.5) * 4;
-    this.life = 1.0; // 透明度 1.0 -> 0.0
-    // 随机颜色 (偏青色/蓝色系)
+    this.life = 1.0;
     this.r = 100 + Math.random() * 155;
     this.g = 200 + Math.random() * 55;
     this.b = 255;
     this.size = Math.random() * 3 + 2;
   }
-
   update(tx, ty, forceDir, hasTarget) {
     if (hasTarget) {
-      // 计算到目标的向量
       let dx = tx - this.x;
       let dy = ty - this.y;
       let dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
-
-      // 归一化
       let nx = dx / dist;
       let ny = dy / dist;
-
-      // 施加力 (吸引或排斥)
       let force = 0.5 * forceDir; 
-      
-      // 如果距离太近，减弱引力防止抖动
       if (dist < 30) force *= 0.1;
-
       this.vx += nx * force;
       this.vy += ny * force;
     } else {
-      // 没有目标时随机游走
       this.vx += (Math.random() - 0.5) * 0.2;
       this.vy += (Math.random() - 0.5) * 0.2;
     }
-
-    // 摩擦力
     this.vx *= 0.95;
     this.vy *= 0.95;
-
-    // 更新位置
     this.x += this.vx;
     this.y += this.vy;
-
-    // 慢慢消失
     this.life -= 0.005;
   }
-
   draw(ctx) {
     if (this.life > 0) {
       ctx.beginPath();
@@ -133,17 +139,13 @@ class Particle {
   }
 }
 
-// ==========================================
-// 3. 核心逻辑函数
-// ==========================================
-
+// GUI 绘制
 function drawStartGUI() {
-  // 绘制半透明遮罩
   ctx.save();
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
   
-  // 绘制文字 (注意：因为CSS里Canvas被镜像了，为了让字正常显示，我们需要在绘制文字时反向变换)
+  // 反转文字
   ctx.translate(canvasElement.width, 0);
   ctx.scale(-1, 1);
   
@@ -151,173 +153,105 @@ function drawStartGUI() {
   ctx.font = 'bold 40px Arial';
   ctx.textAlign = 'center';
   ctx.fillText("GESTURE SYSTEM", canvasElement.width / 2, canvasElement.height / 2 - 50);
-  
   ctx.fillStyle = '#00FFFF';
   ctx.font = '30px Arial';
   ctx.fillText("Raise Hand High to START", canvasElement.width / 2, canvasElement.height / 2 + 20);
-  
   ctx.restore();
 }
 
+// 逻辑判断
 function checkStartGesture(landmarks) {
-  // 检查手腕 (index 0) 是否在屏幕上方 30% 区域
-  const wristY = landmarks[0].y;
-  return wristY < 0.3; 
+  return landmarks[0].y < 0.3; 
 }
 
 function checkPalmOrientation(landmarks, handedness) {
-  // 这里的 handedness 是 MediaPipe 的输出
-  // "Left" 代表画面中的左手（通常是你自己的右手，如果你看的是镜像）
-  // "Right" 代表画面中的右手
-  
-  const idx_x = landmarks[5].x;  // 食指根部
-  const pinky_x = landmarks[17].x; // 小指根部
-  
+  const idx_x = landmarks[5].x;
+  const pinky_x = landmarks[17].x;
   let isFacing = false;
-
-  // 这里的逻辑基于镜像画面 (CSS transform: scaleX(-1))
-  // 在镜像画面中，如果是 Right (实际上是你的右手)
-  // 手心朝向屏幕时，大拇指在内侧（画面右侧），小指在外侧（画面左侧）
-  // 实际上 MediaPipe 的 Left/Right 标签在镜像模式下可能反直觉
-  // 我们使用简单的几何相对位置：
-  
-  if (handedness === 'Right') { // MediaPipe 检测到的是右手
-     // 右手手心朝前：食指(5) 应该在 小指(17) 的左边 (X坐标更小)
+  if (handedness === 'Right') { 
      if (idx_x < pinky_x) isFacing = true;
-  } else { // Left
-     // 左手手心朝前：食指(5) 应该在 小指(17) 的右边 (X坐标更大)
+  } else { 
      if (idx_x > pinky_x) isFacing = true;
   }
-  
   return isFacing;
 }
 
-// ==========================================
-// 4. MediaPipe 回调处理
-// ==========================================
+// MediaPipe 回调
 function onResults(results) {
-  // 1. 清空画布并绘制摄像头原图
+  // 隐藏 Loading
+  if (loadingOverlay.style.display !== 'none') {
+    loadingOverlay.style.display = 'none';
+  }
+
   ctx.save();
   ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
   ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-  // 获取手部数据
   const handsData = results.multiHandLandmarks;
   const handednessData = results.multiHandedness;
-  
   isHandDetected = false;
 
-  // ---------------------------------------------
-  // 状态机逻辑
-  // ---------------------------------------------
-  
   if (gameState === STATE_WAITING) {
-    // 【阶段一：等待启动】
-    drawStartGUI(); // 绘制遮罩
-
+    drawStartGUI();
     if (handsData && handsData.length > 0) {
-      // 画一下手骨架方便用户确认
       drawConnectors(ctx, handsData[0], HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-      drawLandmarks(ctx, handsData[0], {color: '#FF0000', lineWidth: 1});
-
-      // 检测启动手势
       if (checkStartGesture(handsData[0])) {
-        console.log("Start Gesture Detected!");
-        gameState = STATE_RUNNING; // 切换状态
-        // 初始化一些粒子
-        for(let i=0; i<100; i++) {
-          particles.push(new Particle(canvasElement.width, canvasElement.height));
-        }
+        gameState = STATE_RUNNING;
+        for(let i=0; i<100; i++) particles.push(new Particle(canvasElement.width, canvasElement.height));
       }
     }
   } 
   else if (gameState === STATE_RUNNING) {
-    // 【阶段二：运行中】
-    // 这里不再调用 drawStartGUI，所以 UI 会彻底消失
-
     if (handsData && handsData.length > 0) {
       isHandDetected = true;
       const landmarks = handsData[0];
-      const handedness = handednessData[0].label; // "Left" or "Right"
-
-      // 计算手掌中心 (简单取手腕和中指根部的中点)
+      const handedness = handednessData[0].label;
+      
       targetX = (landmarks[0].x + landmarks[9].x) / 2 * canvasElement.width;
       targetY = (landmarks[0].y + landmarks[9].y) / 2 * canvasElement.height;
-
-      // 判断手心朝向
       palmFacingCamera = checkPalmOrientation(landmarks, handedness);
 
-      // 设置力的方向和颜色
-      let statusColor = '';
-      let statusText = '';
-      
-      if (palmFacingCamera) {
-        forceDirection = 1; // 吸引
-        statusColor = '#00FF00'; // 绿色
-        statusText = "Attract (Palm)";
-      } else {
-        forceDirection = -1; // 排斥
-        statusColor = '#FF0000'; // 红色
-        statusText = "Repel (Back)";
-      }
+      let statusColor = palmFacingCamera ? '#00FF00' : '#FF0000';
+      let statusText = palmFacingCamera ? "Attract (Palm)" : "Repel (Back)";
+      forceDirection = palmFacingCamera ? 1 : -1;
 
-      // 绘制状态指示器 (跟随手部)
       ctx.beginPath();
       ctx.arc(targetX, targetY, 15, 0, 2 * Math.PI);
       ctx.fillStyle = statusColor;
       ctx.fill();
 
-      // 绘制骨架 (可选，如果你想只看粒子可以注释掉下面两行)
-      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 2});
-      drawLandmarks(ctx, landmarks, {color: statusColor, lineWidth: 1});
-      
-      // 显示文字状态 (反转回正)
+      // 文字回正
       ctx.save();
       ctx.translate(canvasElement.width, 0);
       ctx.scale(-1, 1);
-      ctx.font = "20px Arial";
       ctx.fillStyle = statusColor;
-      // 这里的坐标计算比较绕，因为反转了，简单写在左上角
-      ctx.fillText(statusText, canvasElement.width - 150, 50);
+      ctx.font = "20px Arial";
+      ctx.fillText(statusText, canvasElement.width - 200, 50);
       ctx.restore();
     }
 
-    // --- 粒子更新循环 ---
-    // 维持粒子数量
-    if (particles.length < 300) {
-      particles.push(new Particle(canvasElement.width, canvasElement.height));
-    }
-
+    if (particles.length < 300) particles.push(new Particle(canvasElement.width, canvasElement.height));
     for (let i = particles.length - 1; i >= 0; i--) {
       let p = particles[i];
       p.update(targetX, targetY, forceDirection, isHandDetected);
       p.draw(ctx);
-      if (p.life <= 0) {
-        particles.splice(i, 1);
-      }
+      if (p.life <= 0) particles.splice(i, 1);
     }
   }
-
   ctx.restore();
 }
 
-// ==========================================
-// 5. 初始化 MediaPipe Hands
-// ==========================================
 const hands = new Hands({locateFile: (file) => {
   return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
 }});
-
 hands.setOptions({
   maxNumHands: 1,
   modelComplexity: 1,
   minDetectionConfidence: 0.7,
   minTrackingConfidence: 0.7
 });
-
 hands.onResults(onResults);
 
-// 启动摄像头
 const camera = new Camera(videoElement, {
   onFrame: async () => {
     await hands.send({image: videoElement});
@@ -325,7 +259,23 @@ const camera = new Camera(videoElement, {
   width: 1280,
   height: 720
 });
-camera.start();
+
+// 启动并捕获错误
+statusText.innerText = "Requesting Camera...";
+camera.start()
+  .then(() => {
+    statusText.innerText = "Loading AI Model...";
+  })
+  .catch(err => {
+    console.error(err);
+    statusText.innerText = "Camera Error: " + err.message;
+    statusText.style.color = "red";
+    // 提示用户必须使用服务器
+    let hint = document.createElement("p");
+    hint.innerHTML = "Did you open this file directly? <br> You MUST use a <b>Local Server</b> (localhost).<br>Direct file:// access is blocked by browsers.";
+    hint.style.color = "white";
+    loadingOverlay.appendChild(hint);
+  });
 
 </script>
 </body>
