@@ -1,333 +1,332 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Advanced Particle System</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
-        
-        /* 调试/状态信息 */
-        #status-bar {
-            position: absolute; top: 0; left: 0; width: 100%; padding: 8px;
-            color: rgba(255,255,255,0.7); font-size: 12px; pointer-events: none; z-index: 999;
-            text-align: center; background: linear-gradient(to bottom, rgba(0,0,0,0.5), transparent);
-        }
-
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-        
-        /* 摄像头小窗 */
-        #video-input { 
-            position: absolute; bottom: 10px; right: 10px; width: 100px; 
-            transform: scaleX(-1); z-index: 10; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;
-            display: none; opacity: 0.6; transition: opacity 0.3s;
-        }
-        #video-input:hover { opacity: 1.0; }
-        
-        /* 启动按钮 */
-        #start-btn {
-            position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
-            padding: 14px 40px; font-size: 16px; border-radius: 30px;
-            background: linear-gradient(45deg, #00d2ff, #3a7bd5);
-            color: white; border: none; font-weight: bold; letter-spacing: 1px;
-            cursor: pointer; z-index: 100; box-shadow: 0 5px 20px rgba(0, 210, 255, 0.4);
-            transition: transform 0.2s, box-shadow 0.2s;
-            display: none; /* JS控制显示 */
-        }
-        #start-btn:active { transform: translateX(-50%) scale(0.95); box-shadow: 0 2px 10px rgba(0, 210, 255, 0.3); }
-    </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-                "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.1/dist/lil-gui.esm.min.js"
-            }
-        }
-    </script>
+  <meta charset="utf-8">
+  <title>Gesture Particle System</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #000;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    canvas {
+      display: block;
+      transform: scaleX(-1); /* 镜像显示，符合操作直觉 */
+    }
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* 让鼠标事件穿透 */
+      z-index: 10;
+      transform: scaleX(-1); /* UI层也镜像，文字需要反着写吗？不，我们在JS里反转文字绘制或者单独处理 */
+    }
+    /* 修正 UI 文字不被镜像翻转的问题：我们将Canvas翻转了，但文字层我们希望正常显示 */
+    /* 简单起见，我们直接在 Canvas 上绘制所有内容，包括 UI */
+  </style>
 </head>
 <body>
-    <div id="status-bar">⚡ 正在初始化高精度粒子引擎...</div>
-    <div id="canvas-container"></div>
-    <video id="video-input" playsinline></video>
-    <button id="start-btn">✨ 启动手势控制</button>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import GUI from 'lil-gui';
+  <video id="input_video" style="display: none;"></video>
+  <canvas id="output_canvas"></canvas>
 
-        const statusDiv = document.getElementById('status-bar');
-        function setStatus(msg) { statusDiv.innerHTML = msg; }
-        window.onerror = (e) => setStatus("❌ 错误: " + e);
+<script>
+// ==========================================
+// 1. 全局变量与设置
+// ==========================================
+const videoElement = document.getElementById('input_video');
+const canvasElement = document.getElementById('output_canvas');
+const ctx = canvasElement.getContext('2d');
 
-        // --- 全局配置 ---
-        // 提升粒子数量到 12000 以获得更精细的效果
-        const PARTICLE_COUNT = 12000; 
-        // 手势灵敏度参数 (范围越大越灵敏)
-        const SENSITIVITY_MIN = 0.1; // 捏合到最紧时的缩放 (汇聚)
-        const SENSITIVITY_MAX = 4.0; // 张开到最大时的缩放 (爆炸)
-        // 动画跟随速度 (越大越跟手)
-        const LERP_SPEED = 0.12; 
+// 状态定义
+const STATE_WAITING = 0;
+const STATE_RUNNING = 1;
+let gameState = STATE_WAITING; // 初始状态
 
-        let scene, camera, renderer, particles, geometry, material, controls;
-        let positionsOriginal = [], handScaleFactor = 1.0, isRunning = false;
-        const config = { shape: 'Galaxy', color: '#00d2ff', autoRotate: true };
+// 屏幕尺寸初始化
+canvasElement.width = window.innerWidth;
+canvasElement.height = window.innerHeight;
 
-        // --- 1. 立即初始化 3D 场景 ---
-        initThree();
-        animate(); 
-        setStatus("✅ 3D 引擎就绪。正在加载 AI 模型...");
+window.addEventListener('resize', () => {
+  canvasElement.width = window.innerWidth;
+  canvasElement.height = window.innerHeight;
+});
 
-        // --- 2. 资源检测 ---
-        const checkTimer = setInterval(() => {
-            if (window.Hands && window.Camera) {
-                clearInterval(checkTimer);
-                document.getElementById('start-btn').style.display = 'block';
-                setStatus("等待用户启动...");
-            }
-        }, 500);
+// 粒子系统变量
+let particles = [];
+let forceDirection = 1; // 1: 吸引, -1: 排斥
+let palmFacingCamera = true;
+let targetX = 0;
+let targetY = 0;
+let isHandDetected = false;
 
-        // --- 3. 启动按钮事件 ---
-        document.getElementById('start-btn').addEventListener('click', async function() {
-            this.style.display = 'none';
-            setStatus("正在请求摄像头权限，请允许...");
-            try {
-                const hands = new window.Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-                hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
-                
-                // 高灵敏度手势处理逻辑
-                hands.onResults((res) => {
-                    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-                        const lm = res.multiHandLandmarks[0];
-                        // 计算拇指(4)和食指(8)的距离
-                        const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-                        
-                        // 核心改进：更广的映射范围和更高的灵敏度
-                        // 将距离 d (大约 0.02~0.25) 映射到 [SENSITIVITY_MIN, SENSITIVITY_MAX]
-                        let normalized = (d - 0.02) / (0.25 - 0.02);
-                        normalized = Math.max(0, Math.min(1, normalized)); // 钳制在 0-1 之间
-                        
-                        // 使用非线性映射 (平方) 让张开时的爆发感更强
-                        // normalized = normalized * normalized; 
+// ==========================================
+// 2. 粒子类 (Particle Class)
+// ==========================================
+class Particle {
+  constructor(w, h) {
+    this.x = Math.random() * w;
+    this.y = Math.random() * h;
+    this.vx = (Math.random() - 0.5) * 4;
+    this.vy = (Math.random() - 0.5) * 4;
+    this.life = 1.0; // 透明度 1.0 -> 0.0
+    // 随机颜色 (偏青色/蓝色系)
+    this.r = 100 + Math.random() * 155;
+    this.g = 200 + Math.random() * 55;
+    this.b = 255;
+    this.size = Math.random() * 3 + 2;
+  }
 
-                        const targetScale = SENSITIVITY_MIN + normalized * (SENSITIVITY_MAX - SENSITIVITY_MIN);
-                        
-                        // 平滑过渡到目标缩放值
-                        handScaleFactor += (targetScale - handScaleFactor) * LERP_SPEED;
-                    } else {
-                        // 没有检测到手时，缓慢恢复到默认大小 (1.0)
-                        handScaleFactor += (1.0 - handScaleFactor) * 0.05;
-                    }
-                });
+  update(tx, ty, forceDir, hasTarget) {
+    if (hasTarget) {
+      // 计算到目标的向量
+      let dx = tx - this.x;
+      let dy = ty - this.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
 
-                const video = document.getElementById('video-input');
-                const cameraUtils = new window.Camera(video, {
-                    onFrame: async () => { await hands.send({image: video}); },
-                    width: 640, height: 480, facingMode: "user"
-                });
-                await cameraUtils.start();
-                video.style.display = 'block';
-                isRunning = true;
-                setStatus("🖐️ 手势控制已激活！捏合手指汇聚，张开手指爆炸。单指拖动可翻转视角。");
-                // 启动后自动关闭自动旋转，方便用户手动操作
-                config.autoRotate = false; 
-                gui.controllers.find(c => c.property === 'autoRotate').updateDisplay();
+      // 归一化
+      let nx = dx / dist;
+      let ny = dy / dist;
 
-            } catch(e) {
-                alert("摄像头启动失败: " + e.message);
-                setStatus("❌ " + e.message);
-                this.style.display = 'block';
-            }
-        });
+      // 施加力 (吸引或排斥)
+      let force = 0.5 * forceDir; 
+      
+      // 如果距离太近，减弱引力防止抖动
+      if (dist < 30) force *= 0.1;
 
-        // --- Three.js 核心逻辑 ---
-        function initThree() {
-            const container = document.getElementById('canvas-container');
-            scene = new THREE.Scene();
-            // 更深邃的雾效
-            scene.fog = new THREE.FogExp2(0x000000, 0.01);
+      this.vx += nx * force;
+      this.vy += ny * force;
+    } else {
+      // 没有目标时随机游走
+      this.vx += (Math.random() - 0.5) * 0.2;
+      this.vy += (Math.random() - 0.5) * 0.2;
+    }
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-            camera.position.z = 25; // 相机稍远，以容纳爆炸效果
+    // 摩擦力
+    this.vx *= 0.95;
+    this.vy *= 0.95;
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比以优化性能
-            container.appendChild(renderer.domElement);
+    // 更新位置
+    this.x += this.vx;
+    this.y += this.vy;
 
-            // 控制器 (允许用户翻转/查看)
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.autoRotate = config.autoRotate;
-            controls.autoRotateSpeed = 0.5;
+    // 慢慢消失
+    this.life -= 0.005;
+  }
 
-            // 粒子系统初始化
-            geometry = new THREE.BufferGeometry();
-            const pos = new Float32Array(PARTICLE_COUNT * 3);
-            geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  draw(ctx) {
+    if (this.life > 0) {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
+      ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.life})`;
+      ctx.fill();
+    }
+  }
+}
 
-            // 创建更精细的发光纹理 (中心亮，边缘柔和)
-            const cvs = document.createElement('canvas'); cvs.width = 64; cvs.height = 64;
-            const ctx = cvs.getContext('2d');
-            const grd = ctx.createRadialGradient(32,32,0,32,32,32);
-            grd.addColorStop(0,'rgba(255,255,255,1)'); // 中心纯白
-            grd.addColorStop(0.3,'rgba(255,255,255,0.8)'); 
-            grd.addColorStop(0.5,'rgba(255,255,255,0.2)'); 
-            grd.addColorStop(1,'rgba(0,0,0,0)'); // 边缘透明
-            ctx.fillStyle = grd; ctx.fillRect(0,0,64,64);
-            const tex = new THREE.Texture(cvs); tex.needsUpdate = true;
+// ==========================================
+// 3. 核心逻辑函数
+// ==========================================
 
-            material = new THREE.PointsMaterial({
-                size: 0.15, // 【精细化】显著缩小粒子尺寸
-                map: tex,
-                color: config.color,
-                transparent: true, 
-                opacity: 0.9, // 提高不透明度增加亮度
-                blending: THREE.AdditiveBlending, // 发光叠加模式
-                depthWrite: false // 关闭深度写入以实现透明叠加
-            });
+function drawStartGUI() {
+  // 绘制半透明遮罩
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+  
+  // 绘制文字 (注意：因为CSS里Canvas被镜像了，为了让字正常显示，我们需要在绘制文字时反向变换)
+  ctx.translate(canvasElement.width, 0);
+  ctx.scale(-1, 1);
+  
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 40px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText("GESTURE SYSTEM", canvasElement.width / 2, canvasElement.height / 2 - 50);
+  
+  ctx.fillStyle = '#00FFFF';
+  ctx.font = '30px Arial';
+  ctx.fillText("Raise Hand High to START", canvasElement.width / 2, canvasElement.height / 2 + 20);
+  
+  ctx.restore();
+}
 
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
+function checkStartGesture(landmarks) {
+  // 检查手腕 (index 0) 是否在屏幕上方 30% 区域
+  const wristY = landmarks[0].y;
+  return wristY < 0.3; 
+}
 
-            // 初始形状
-            updateShape(config.shape);
+function checkPalmOrientation(landmarks, handedness) {
+  // 这里的 handedness 是 MediaPipe 的输出
+  // "Left" 代表画面中的左手（通常是你自己的右手，如果你看的是镜像）
+  // "Right" 代表画面中的右手
+  
+  const idx_x = landmarks[5].x;  // 食指根部
+  const pinky_x = landmarks[17].x; // 小指根部
+  
+  let isFacing = false;
 
-            // GUI 面板
-            setupGUI();
+  // 这里的逻辑基于镜像画面 (CSS transform: scaleX(-1))
+  // 在镜像画面中，如果是 Right (实际上是你的右手)
+  // 手心朝向屏幕时，大拇指在内侧（画面右侧），小指在外侧（画面左侧）
+  // 实际上 MediaPipe 的 Left/Right 标签在镜像模式下可能反直觉
+  // 我们使用简单的几何相对位置：
+  
+  if (handedness === 'Right') { // MediaPipe 检测到的是右手
+     // 右手手心朝前：食指(5) 应该在 小指(17) 的左边 (X坐标更小)
+     if (idx_x < pinky_x) isFacing = true;
+  } else { // Left
+     // 左手手心朝前：食指(5) 应该在 小指(17) 的右边 (X坐标更大)
+     if (idx_x > pinky_x) isFacing = true;
+  }
+  
+  return isFacing;
+}
 
-            window.addEventListener('resize', onWindowResize);
+// ==========================================
+// 4. MediaPipe 回调处理
+// ==========================================
+function onResults(results) {
+  // 1. 清空画布并绘制摄像头原图
+  ctx.save();
+  ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+  ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+  // 获取手部数据
+  const handsData = results.multiHandLandmarks;
+  const handednessData = results.multiHandedness;
+  
+  isHandDetected = false;
+
+  // ---------------------------------------------
+  // 状态机逻辑
+  // ---------------------------------------------
+  
+  if (gameState === STATE_WAITING) {
+    // 【阶段一：等待启动】
+    drawStartGUI(); // 绘制遮罩
+
+    if (handsData && handsData.length > 0) {
+      // 画一下手骨架方便用户确认
+      drawConnectors(ctx, handsData[0], HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+      drawLandmarks(ctx, handsData[0], {color: '#FF0000', lineWidth: 1});
+
+      // 检测启动手势
+      if (checkStartGesture(handsData[0])) {
+        console.log("Start Gesture Detected!");
+        gameState = STATE_RUNNING; // 切换状态
+        // 初始化一些粒子
+        for(let i=0; i<100; i++) {
+          particles.push(new Particle(canvasElement.width, canvasElement.height));
         }
+      }
+    }
+  } 
+  else if (gameState === STATE_RUNNING) {
+    // 【阶段二：运行中】
+    // 这里不再调用 drawStartGUI，所以 UI 会彻底消失
 
-        function setupGUI() {
-            const gui = new GUI({ title: '控制面板' });
-            gui.domElement.style.top = '10px';
-            gui.domElement.style.right = '10px';
-            
-            // 添加新的形状
-            const shapes = ['Galaxy', 'Heart', 'Explode', 'Cube', 'Ring', 'Wave', 'Sphere'];
-            gui.add(config, 'shape', shapes).name('切换形状').onChange(v => updateShape(v));
-            gui.addColor(config, 'color').name('粒子颜色').onChange(v => material.color.set(v));
-            gui.add(config, 'autoRotate').name('自动旋转').onChange(v => controls.autoRotate = v);
-        }
+    if (handsData && handsData.length > 0) {
+      isHandDetected = true;
+      const landmarks = handsData[0];
+      const handedness = handednessData[0].label; // "Left" or "Right"
 
-        // --- 核心：更丰富的形状生成公式 ---
-        function updateShape(type) {
-            const count = PARTICLE_COUNT;
-            const arr = new Float32Array(count * 3);
-            for(let i=0; i<count; i++) {
-                const i3 = i*3;
-                let x=0, y=0, z=0;
-                const random = Math.random();
-                
-                switch(type) {
-                    case 'Galaxy': // 经典银河
-                        const arms = 5; 
-                        const spin = i * 0.001;
-                        const branch = i % arms;
-                        const rG = random * 15;
-                        const aG = spin + (Math.PI*2/arms)*branch;
-                        x = Math.cos(aG)*rG + (Math.random()-0.5);
-                        y = (Math.random()-0.5) * (rG*0.1 + 0.5);
-                        z = Math.sin(aG)*rG + (Math.random()-0.5);
-                        break;
+      // 计算手掌中心 (简单取手腕和中指根部的中点)
+      targetX = (landmarks[0].x + landmarks[9].x) / 2 * canvasElement.width;
+      targetY = (landmarks[0].y + landmarks[9].y) / 2 * canvasElement.height;
 
-                    case 'Heart': // 3D爱心
-                        const phiH = Math.acos(-1+(2*i)/count);
-                        const thetaH = Math.sqrt(count*Math.PI)*phiH;
-                        x = 16*Math.pow(Math.sin(thetaH),3) * 0.5;
-                        y = (13*Math.cos(thetaH)-5*Math.cos(2*thetaH)-2*Math.cos(3*thetaH)-Math.cos(4*thetaH)) * 0.5;
-                        z = 8*Math.cos(phiH) * 0.5;
-                        break;
+      // 判断手心朝向
+      palmFacingCamera = checkPalmOrientation(landmarks, handedness);
 
-                    case 'Explode': // 【新增】大爆炸/随机散布
-                        // 在一个大球体内随机分布
-                        const rE = random * 35; // 超大半径
-                        const thetaE = random * Math.PI * 2;
-                        const phiE = Math.acos(2 * random - 1);
-                        x = rE * Math.sin(phiE) * Math.cos(thetaE);
-                        y = rE * Math.sin(phiE) * Math.sin(thetaE);
-                        z = rE * Math.cos(phiE);
-                        break;
+      // 设置力的方向和颜色
+      let statusColor = '';
+      let statusText = '';
+      
+      if (palmFacingCamera) {
+        forceDirection = 1; // 吸引
+        statusColor = '#00FF00'; // 绿色
+        statusText = "Attract (Palm)";
+      } else {
+        forceDirection = -1; // 排斥
+        statusColor = '#FF0000'; // 红色
+        statusText = "Repel (Back)";
+      }
 
-                    case 'Cube': // 【新增】立方体矩阵
-                        // 简单的计算方法：将索引映射到 3D 网格
-                        const side = Math.ceil(Math.cbrt(count));
-                        const spacing = 1.5;
-                        const offset = (side * spacing) / 2;
-                        const ix = i % side;
-                        const iy = Math.floor(i / side) % side;
-                        const iz = Math.floor(i / (side * side));
-                        x = ix * spacing - offset + (random-0.5)*0.5;
-                        y = iy * spacing - offset + (random-0.5)*0.5;
-                        z = iz * spacing - offset + (random-0.5)*0.5;
-                        break;
+      // 绘制状态指示器 (跟随手部)
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, 15, 0, 2 * Math.PI);
+      ctx.fillStyle = statusColor;
+      ctx.fill();
 
-                    case 'Ring': // 【新增】星环
-                        const rR = 10 + random * 4; // 内径10，外径14
-                        const aR = i * 0.01;
-                        x = rR * Math.cos(aR);
-                        y = (random - 0.5) * 0.5; // 非常扁平
-                        z = rR * Math.sin(aR);
-                        break;
+      // 绘制骨架 (可选，如果你想只看粒子可以注释掉下面两行)
+      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 2});
+      drawLandmarks(ctx, landmarks, {color: statusColor, lineWidth: 1});
+      
+      // 显示文字状态 (反转回正)
+      ctx.save();
+      ctx.translate(canvasElement.width, 0);
+      ctx.scale(-1, 1);
+      ctx.font = "20px Arial";
+      ctx.fillStyle = statusColor;
+      // 这里的坐标计算比较绕，因为反转了，简单写在左上角
+      ctx.fillText(statusText, canvasElement.width - 150, 50);
+      ctx.restore();
+    }
 
-                    case 'Wave': // 【新增】波动平面
-                        const width = 40;
-                        const depth = 40;
-                        const cols = Math.sqrt(count);
-                        const rows = Math.sqrt(count);
-                        const row = Math.floor(i / cols);
-                        const col = i % cols;
-                        x = (col / cols) * width - width/2;
-                        z = (row / rows) * depth - depth/2;
-                        // 使用正弦波生成高度 y
-                        y = Math.sin(x * 0.2) * 2 + Math.cos(z * 0.2) * 2;
-                        break;
+    // --- 粒子更新循环 ---
+    // 维持粒子数量
+    if (particles.length < 300) {
+      particles.push(new Particle(canvasElement.width, canvasElement.height));
+    }
 
-                    default: // Sphere (汇聚态/球体)
-                        const rS = 8;
-                        const phiS = Math.acos( -1 + ( 2 * i ) / count );
-                        const thetaS = Math.sqrt( count * Math.PI ) * phiS;
-                        x = rS * Math.sin(phiS) * Math.cos(thetaS);
-                        y = rS * Math.sin(phiS) * Math.sin(thetaS);
-                        z = rS * Math.cos(phiS);
-                        break;
-                }
-                arr[i3] = x; arr[i3+1] = y; arr[i3+2] = z;
-            }
-            positionsOriginal = arr;
-        }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      let p = particles[i];
+      p.update(targetX, targetY, forceDirection, isHandDetected);
+      p.draw(ctx);
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+      }
+    }
+  }
 
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            const pos = particles.geometry.attributes.position.array;
-            // 核心动画循环：快速插值到 (目标位置 * 手势缩放)
-            for(let i=0; i<pos.length; i++) {
-                if (positionsOriginal.length > 0) {
-                    // LERP_SPEED 越大，反应越快
-                    pos[i] += (positionsOriginal[i] * handScaleFactor - pos[i]) * LERP_SPEED;
-                }
-            }
-            particles.geometry.attributes.position.needsUpdate = true;
-            
-            controls.update(); // 更新控制器 (处理自动旋转和阻尼)
-            renderer.render(scene, camera);
-        }
+  ctx.restore();
+}
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-    </script>
+// ==========================================
+// 5. 初始化 MediaPipe Hands
+// ==========================================
+const hands = new Hands({locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+}});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+hands.onResults(onResults);
+
+// 启动摄像头
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await hands.send({image: videoElement});
+  },
+  width: 1280,
+  height: 720
+});
+camera.start();
+
+</script>
 </body>
 </html>
