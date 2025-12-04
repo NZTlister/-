@@ -2,243 +2,163 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手势交互3D粒子系统</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D 手势粒子 (GitHub Pages 版)</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #canvas-container { position: absolute; width: 100%; height: 100%; z-index: 1; }
+        #video-input { position: absolute; bottom: 10px; right: 10px; width: 120px; z-index: 10; transform: scaleX(-1); display: none; border: 1px solid #fff; }
         
-        /* 摄像头预览 */
-        #video-input { 
-            position: absolute; bottom: 10px; right: 10px; width: 120px; height: 90px; 
-            z-index: 10; border-radius: 8px; transform: scaleX(-1); opacity: 0.7; border: 1px solid #444;
-            display: none; /* 默认隐藏，启动后显示 */
-        }
-
+        /* 加载层 */
+        #overlay { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index:100; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #00d2ff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;}
+        #status { color: #ccc; font-size: 14px; text-align: center; max-width: 80%; }
+        
         /* 启动按钮 */
-        #start-btn {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 101;
-            background: rgba(0, 210, 255, 0.2); 
-            border: 1px solid #00d2ff;
-            color: #00d2ff; padding: 15px 30px; border-radius: 30px; cursor: pointer;
-            font-size: 18px; letter-spacing: 2px;
-            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-            transition: 0.3s;
-            display: none; /* 资源加载完才显示 */
-            box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
-        }
-        #start-btn:hover { background: rgba(0, 210, 255, 0.4); box-shadow: 0 0 25px rgba(0, 210, 255, 0.6); }
-
-        /* 加载/状态层 */
-        #overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 100; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; color: white;
-            transition: opacity 0.5s;
-        }
-        .spinner { 
-            width: 40px; height: 40px; border: 4px solid #333; 
-            border-top: 4px solid #00d2ff; border-radius: 50%; 
-            animation: spin 1s linear infinite; margin-bottom: 20px;
-        }
-        #status-text { color: #aaa; font-size: 14px; text-align: center; max-width: 80%; line-height: 1.5; }
-        #error-msg { color: #ff4444; margin-top: 10px; font-size: 12px; display: none; }
-
+        #start-btn { margin-top: 20px; padding: 10px 30px; border: 1px solid #00d2ff; color: #00d2ff; background: rgba(0,210,255,0.1); border-radius: 20px; display: none; cursor: pointer; }
+        
+        /* 屏幕日志 (用于手机调试) */
+        #console-log { position: absolute; bottom: 0; left: 0; width: 100%; height: 150px; background: rgba(0,0,0,0.5); color: #0f0; font-size: 10px; overflow-y: scroll; z-index: 200; pointer-events: none; display: none;}
+        
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script>
+        window.onerror = function(msg, source, lineno) {
+            const log = document.getElementById('console-log');
+            if(log) {
+                log.style.display = 'block';
+                log.innerHTML += `<div style="color:red">ERROR: ${msg}</div>`;
+            }
+        };
+        function logMsg(msg) {
+            const log = document.getElementById('console-log');
+            if(log) log.innerHTML += `<div>> ${msg}</div>`;
+        }
+    </script>
+
+    <script src="https://unpkg.zhimg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.zhimg.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "lil-gui": "https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.esm.min.js"
+                "three": "https://registry.npmmirror.com/three/0.160.0/files/build/three.module.js",
+                "three/addons/": "https://registry.npmmirror.com/three/0.160.0/files/examples/jsm/",
+                "lil-gui": "https://registry.npmmirror.com/lil-gui/0.19.1/files/dist/lil-gui.esm.min.js"
             }
         }
     </script>
 </head>
 <body>
-
+    <div id="console-log"></div>
     <video id="video-input" playsinline></video>
     <div id="canvas-container"></div>
-
+    
     <div id="overlay">
         <div class="spinner" id="spinner"></div>
-        <div id="status-text">正在连接资源服务器...<br>请稍候 (首次加载可能需要10-20秒)</div>
-        <div id="error-msg"></div>
+        <div id="status">正在加载资源...<br>如果卡住，请检查网络</div>
+        <button id="start-btn">启动体验 (Start)</button>
+        <button id="force-btn" style="display:none; margin-top:10px; color:#aaa; background:none; border:none; border-bottom:1px solid #555;">等待太久? 强制进入</button>
     </div>
-
-    <button id="start-btn">启动体验 (START)</button>
 
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import GUI from 'lil-gui';
 
-        // --- UI 元素引用 ---
-        const overlay = document.getElementById('overlay');
-        const statusText = document.getElementById('status-text');
-        const startBtn = document.getElementById('start-btn');
-        const spinner = document.getElementById('spinner');
-        const errorMsg = document.getElementById('error-msg');
-        const videoElement = document.getElementById('video-input');
+        logMsg("Three.js 模块已加载");
 
-        // --- 全局变量 ---
-        const config = {
-            particleCount: 10000, 
-            particleSize: 0.12,
-            color: '#00d2ff',
-            shape: 'Galaxy',
-            autoRotate: true
+        const els = {
+            overlay: document.getElementById('overlay'),
+            status: document.getElementById('status'),
+            startBtn: document.getElementById('start-btn'),
+            spinner: document.getElementById('spinner'),
+            video: document.getElementById('video-input'),
+            forceBtn: document.getElementById('force-btn')
         };
+
         let scene, camera, renderer, particles, geometry, material;
-        let positionsOriginal = []; 
-        let positionsCurrent = [];
-        let handScaleFactor = 1.0; 
+        let positionsOriginal = [], handScaleFactor = 1.0;
         let isRunning = false;
-
-        // --- 检查环境 ---
-        function checkEnvironment() {
-            // 1. 检查 HTTPS (Localhost 除外)
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const isSecure = window.location.protocol === 'https:';
-            
-            if (!isLocal && !isSecure) {
-                showError("错误：摄像头需要 HTTPS 环境。<br>请使用 Localhost 或配置 SSL 证书。");
-                return false;
-            }
-
-            // 2. 检查 MediaPipe 是否加载成功
-            if (!window.Hands || !window.Camera) {
-                // 等待几秒再检查，可能是网络慢
-                setTimeout(() => {
-                    if (!window.Hands) {
-                        showError("网络错误：无法加载 AI 模型。<br>请检查网络连接 (可能需要翻墙或切换网络)。");
-                    }
-                }, 8000);
-                return true; // 暂时返回true等待加载
-            }
-            return true;
-        }
-
-        function showError(msg) {
-            spinner.style.display = 'none';
-            statusText.innerHTML = "";
-            errorMsg.style.display = 'block';
-            errorMsg.innerHTML = msg;
-        }
-
-        // --- 等待库加载完成 ---
-        const checkInterval = setInterval(() => {
-            if (window.Hands && window.Camera && window.THREE) {
-                clearInterval(checkInterval);
-                spinner.style.display = 'none';
-                statusText.innerText = "资源加载完毕";
-                startBtn.style.display = 'block';
+        
+        // --- 资源检查 ---
+        let loaded = false;
+        const checkTimer = setInterval(() => {
+            if (window.Hands && window.Camera && THREE) {
+                clearInterval(checkTimer);
+                loaded = true;
+                els.spinner.style.display = 'none';
+                els.status.innerText = "资源加载完毕 ✅";
+                els.startBtn.style.display = 'block';
+                els.forceBtn.style.display = 'none';
+                logMsg("所有库检测通过");
             }
         }, 500);
 
-        // --- 启动逻辑 ---
-        startBtn.addEventListener('click', async () => {
-            if(!checkEnvironment()) return;
+        // --- 超时处理 ---
+        setTimeout(() => {
+            if (!loaded) {
+                els.status.innerText = "加载似乎卡住了 (可能是网络原因)";
+                els.forceBtn.style.display = 'block';
+                document.getElementById('console-log').style.display = 'block'; // 显示日志供排查
+                logMsg("超时：请检查上方是否有红色报错");
+            }
+        }, 8000); // 8秒后显示强制按钮
 
-            startBtn.style.display = 'none';
-            spinner.style.display = 'block';
-            statusText.innerText = "正在请求摄像头权限...";
+        els.forceBtn.addEventListener('click', () => {
+            els.spinner.style.display = 'none';
+            els.startBtn.style.display = 'block';
+            els.forceBtn.style.display = 'none';
+        });
+
+        // --- 启动逻辑 ---
+        els.startBtn.addEventListener('click', async () => {
+            els.startBtn.style.display = 'none';
+            els.spinner.style.display = 'block';
+            els.status.innerText = "正在请求摄像头...";
 
             try {
-                // 1. 全屏
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(() => {});
-                }
-
-                // 2. 初始化 MediaPipe Hands
+                // MediaPipe 配置
                 const hands = new window.Hands({locateFile: (file) => {
-                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                    // 强制使用知乎镜像加载模型文件
+                    return `https://unpkg.zhimg.com/@mediapipe/hands/${file}`;
                 }});
-
-                hands.setOptions({
-                    maxNumHands: 1,
-                    modelComplexity: 1,
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-
+                
+                hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
                 hands.onResults(onHandResults);
 
-                // 3. 初始化摄像头
-                const cameraUtils = new window.Camera(videoElement, {
-                    onFrame: async () => {
-                        await hands.send({image: videoElement});
-                    },
-                    width: 640,
-                    height: 480,
-                    facingMode: "user"
+                // 摄像头
+                const cameraUtils = new window.Camera(els.video, {
+                    onFrame: async () => { await hands.send({image: els.video}); },
+                    width: 640, height: 480, facingMode: "user"
                 });
-
+                
+                logMsg("正在启动摄像头...");
                 await cameraUtils.start();
+                logMsg("摄像头启动成功");
 
-                // 4. 摄像头成功后，启动 Three.js
-                videoElement.style.display = 'block'; // 显示小窗
+                // 3D 场景
                 initThree();
                 animate();
 
-                // 5. 隐藏遮罩
-                overlay.style.opacity = '0';
-                setTimeout(() => overlay.style.display = 'none', 500);
+                els.video.style.display = 'block';
+                els.overlay.style.opacity = 0;
+                setTimeout(() => els.overlay.style.display = 'none', 500);
                 isRunning = true;
 
-            } catch (err) {
-                console.error(err);
-                showError("启动失败: " + err.message + "<br>请允许摄像头权限并重试。");
-                startBtn.style.display = 'block';
-                startBtn.innerText = "重试";
+            } catch (e) {
+                console.error(e);
+                logMsg("Error: " + e.message);
+                els.status.innerText = "启动失败: " + e.message;
+                els.status.style.color = "red";
+                alert("无法启动: " + e.message);
             }
         });
 
-
         // --- Three.js 逻辑 ---
-        function getShapeData(type, count) {
-            const arr = new Float32Array(count * 3);
-            for (let i = 0; i < count; i++) {
-                let x, y, z;
-                const i3 = i * 3;
-                // 简单的形状逻辑
-                if (type === 'Galaxy') {
-                    const angle = i * 0.1;
-                    const r = 2 + i * 0.005;
-                    x = Math.cos(angle) * r + (Math.random()-0.5);
-                    y = (Math.random()-0.5)*2;
-                    z = Math.sin(angle) * r + (Math.random()-0.5);
-                } else if (type === 'Heart') {
-                     const t = (i / count) * Math.PI * 2; 
-                    const phi = Math.acos( -1 + ( 2 * i ) / count );
-                    const theta = Math.sqrt( count * Math.PI ) * phi;
-                    let tx = 16 * Math.pow(Math.sin(theta), 3);
-                    let ty = 13 * Math.cos(theta) - 5 * Math.cos(2 * theta) - 2 * Math.cos(3 * theta) - Math.cos(4 * theta);
-                    let tz = 10 * Math.cos(phi);
-                    x = tx * 0.5 + (Math.random()-0.5);
-                    y = ty * 0.5 + (Math.random()-0.5);
-                    z = tz * 0.5 + (Math.random()-0.5);
-                } else {
-                    // Default Sphere/Fireworks
-                    const r = 8 * Math.cbrt(Math.random());
-                    const theta = Math.random() * 2 * Math.PI;
-                    const phi = Math.acos(2 * Math.random() - 1);
-                    x = r * Math.sin(phi) * Math.cos(theta);
-                    y = r * Math.sin(phi) * Math.sin(theta);
-                    z = r * Math.cos(phi);
-                }
-                arr[i3] = x; arr[i3+1] = y; arr[i3+2] = z;
-            }
-            return arr;
-        }
-
         function initThree() {
             scene = new THREE.Scene();
             scene.fog = new THREE.FogExp2(0x000000, 0.02);
@@ -249,67 +169,84 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.getElementById('canvas-container').appendChild(renderer.domElement);
-
+            
             new OrbitControls(camera, renderer.domElement).enableDamping = true;
 
-            geometry = new THREE.BufferGeometry();
-            positionsOriginal = getShapeData(config.shape, config.particleCount);
-            positionsCurrent = new Float32Array(positionsOriginal);
-            geometry.setAttribute('position', new THREE.BufferAttribute(positionsCurrent, 3));
+            // 粒子
+            updateShape('Galaxy');
+            
+            // 生成纹理
+            const cvs = document.createElement('canvas'); cvs.width=32; cvs.height=32;
+            const ctx = cvs.getContext('2d');
+            const grd = ctx.createRadialGradient(16,16,0,16,16,16);
+            grd.addColorStop(0,'rgba(255,255,255,1)'); grd.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.fillStyle = grd; ctx.fillRect(0,0,32,32);
+            const tex = new THREE.Texture(cvs); tex.needsUpdate = true;
 
-            const sprite = new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png');
             material = new THREE.PointsMaterial({
-                color: config.color, size: config.particleSize, map: sprite,
-                sizeAttenuation: true, transparent: true, opacity: 0.8,
-                blending: THREE.AdditiveBlending, depthWrite: false
+                color: '#00d2ff', size: 0.1, map: tex,
+                transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
             });
-
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
             // GUI
-            const gui = new GUI({ title: '控制面板' });
-            gui.domElement.style.top = '60px';
-            gui.addColor(config, 'color').name('颜色').onChange(v => material.color.set(v));
-            gui.add(config, 'shape', ['Galaxy', 'Heart', 'Sphere']).name('模型').onChange(v => {
-                positionsOriginal = getShapeData(v, config.particleCount);
-            });
-            gui.add(config, 'autoRotate').name('自动旋转');
+            const gui = new GUI({ title: 'Control' });
+            gui.domElement.style.marginTop = '20px';
+            gui.addColor({c:'#00d2ff'}, 'c').onChange(v => material.color.set(v)).name('Color');
+            gui.add({s:'Galaxy'}, 's', ['Galaxy', 'Heart', 'Sphere']).onChange(v => updateShape(v)).name('Shape');
 
             window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.aspect = window.innerWidth/window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
         }
 
-        function animate() {
-            if (!isRunning) return;
-            requestAnimationFrame(animate);
-            
-            const pos = particles.geometry.attributes.position.array;
-            const lerp = 0.05;
+        function updateShape(type) {
+            const count = 8000;
+            const pos = new Float32Array(count * 3);
+            for(let i=0; i<count; i++) {
+                let x,y,z;
+                if(type==='Galaxy') {
+                    const a=i*0.1, r=2+i*0.005; x=Math.cos(a)*r; y=(Math.random()-0.5)*2; z=Math.sin(a)*r;
+                } else if(type==='Heart') {
+                    const t=(i/count)*Math.PI*2, p=Math.acos(-1+(2*i)/count), th=Math.sqrt(count*Math.PI)*p;
+                    x=16*Math.pow(Math.sin(th),3)*0.5; y=(13*Math.cos(th)-5*Math.cos(2*th)-2*Math.cos(3*th)-Math.cos(4*th))*0.5; z=10*Math.cos(p)*0.5;
+                } else {
+                    const r=6, p=Math.acos(-1+(2*i)/count), th=Math.sqrt(count*Math.PI)*p;
+                    x=r*Math.sin(p)*Math.cos(th); y=r*Math.sin(p)*Math.sin(th); z=r*Math.cos(p);
+                }
+                pos[i*3]=x+(Math.random()-0.5); pos[i*3+1]=y+(Math.random()-0.5); pos[i*3+2]=z+(Math.random()-0.5);
+            }
+            positionsOriginal = pos;
+            if(!geometry) {
+                geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            } else {
+                // 如果已经初始化，平滑过渡的逻辑稍微复杂，这里简化处理直接重置
+                // 实际动画在 animate 里
+            }
+        }
 
-            for(let i=0; i<config.particleCount; i++) {
-                const i3 = i*3;
-                pos[i3] += (positionsOriginal[i3] * handScaleFactor - pos[i3]) * lerp;
-                pos[i3+1] += (positionsOriginal[i3+1] * handScaleFactor - pos[i3+1]) * lerp;
-                pos[i3+2] += (positionsOriginal[i3+2] * handScaleFactor - pos[i3+2]) * lerp;
+        function animate() {
+            if(!isRunning) return;
+            requestAnimationFrame(animate);
+            const pos = particles.geometry.attributes.position.array;
+            for(let i=0; i<positionsOriginal.length; i++) {
+                pos[i] += (positionsOriginal[i]*handScaleFactor - pos[i]) * 0.08;
             }
             particles.geometry.attributes.position.needsUpdate = true;
-            
-            if (config.autoRotate) particles.rotation.y += 0.002;
-            
+            particles.rotation.y += 0.002;
             renderer.render(scene, camera);
         }
 
-        function onHandResults(results) {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const lm = results.multiHandLandmarks[0];
+        function onHandResults(res) {
+            if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+                const lm = res.multiHandLandmarks[0];
                 const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-                // 距离映射
-                const scale = 0.5 + Math.min(Math.max((d - 0.03) / 0.2, 0), 1) * 2.0;
-                handScaleFactor += (scale - handScaleFactor) * 0.1;
+                const target = 0.5 + Math.min(Math.max((d-0.02)/0.18,0),1)*2.0;
+                handScaleFactor += (target - handScaleFactor) * 0.1;
             } else {
                 handScaleFactor += (1.0 - handScaleFactor) * 0.05;
             }
